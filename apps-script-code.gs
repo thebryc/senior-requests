@@ -49,7 +49,7 @@ const FEE_BALANCE_SHEET = 'Fee Payment Balance';
 
 // Paste the deployed URL of bryc-senior-portal.html here; blank just omits the
 // "check your portal" link from student emails.
-const PORTAL_URL = '';
+const PORTAL_URL = 'https://thebryc.github.io/seniorrequests/';
 
 // Counselors allowed to use bryc-admin.html and to trigger a student email.
 // Keep in sync with ALLOWED_ADMIN_EMAILS there. Addresses follow BRYC's
