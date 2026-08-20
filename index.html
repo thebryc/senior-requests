@@ -624,7 +624,23 @@ let warnTimer = null;
  * has no such restriction. (Same approach as the request form's lookup.)
  * ======================================================================== */
 
+/**
+ * One automatic retry before surfacing an error. A JSONP script tag fails on
+ * any transient blip -- flaky wifi, or the Apps Script being momentarily
+ * unavailable while it redeploys -- and a student shouldn't be dead-ended by a
+ * hiccup they can't do anything about.
+ */
 function jsonpFetch(params){
+  return jsonpOnce(params).catch(function(err){
+    return new Promise(function(resolve, reject){
+      setTimeout(function(){
+        jsonpOnce(params).then(resolve).catch(function(){ reject(err); });
+      }, 1500);
+    });
+  });
+}
+
+function jsonpOnce(params){
   return new Promise(function(resolve, reject){
     if(!APPS_SCRIPT_URL || APPS_SCRIPT_URL.indexOf("PASTE_YOUR") === 0){
       reject(new Error("The portal isn't connected to the BRYC spreadsheet yet."));
@@ -656,7 +672,7 @@ function jsonpFetch(params){
     script.onerror = function(){
       if(done) return;
       done = true; clearTimeout(timer); cleanup();
-      reject(new Error("We couldn't reach the BRYC server."));
+      reject(new Error("We couldn't reach the BRYC server. Check your connection and try again in a moment."));
     };
     document.body.appendChild(script);
   });
