@@ -455,7 +455,37 @@
 #staff .checkbox-field{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;}
 #staff .btn-save{background:var(--mid-teal);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;}
 #staff .btn-save:hover{background:var(--bright-teal);}
+  .msg-list{display:flex;flex-direction:column;}
+  .msg-row{display:grid;grid-template-columns:190px 1fr;gap:14px;align-items:baseline;
+    padding:10px 0;border-bottom:1px solid var(--border);}
+  .msg-row:last-child{border-bottom:0;}
+  .msg-when{font-size:12.5px;color:var(--muted);white-space:nowrap;}
+  .msg-kind{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--dark-teal);background:var(--ghost-teal);
+    border-radius:999px;padding:2px 9px;margin-right:9px;white-space:nowrap;}
+  .msg-subj{font-size:14px;color:var(--ink);}
+  .msg-note{margin-top:12px;font-size:12.5px;color:var(--muted);}
+  @media (max-width:620px){
+    .msg-row{grid-template-columns:1fr;gap:5px;}
+    .msg-kind{margin-bottom:3px;}
+  }
 #staff .save-note{font-size:11.5px;color:var(--muted);}
+  #staff .comms{margin-top:14px;border-top:1px solid var(--border);padding-top:12px;}
+  #staff .comms-head{font-size:11px;font-weight:700;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:8px;}
+  #staff .comms-none{font-size:12.5px;color:var(--muted);}
+  #staff .comms-row{display:grid;grid-template-columns:150px 120px 1fr 150px;gap:10px;
+    align-items:baseline;padding:5px 0;font-size:12.5px;border-bottom:1px solid var(--border);}
+  #staff .comms-row:last-child{border-bottom:0;}
+  #staff .comms-when{color:var(--muted);white-space:nowrap;}
+  #staff .comms-kind{font-weight:600;color:var(--dark-teal);}
+  #staff .comms-subj{color:var(--ink);}
+  #staff .comms-by{color:var(--muted);text-align:right;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;}
+  @media (max-width:720px){
+    #staff .comms-row{grid-template-columns:1fr;gap:2px;}
+    #staff .comms-by{text-align:left;}
+  }
 #staff /* ---------- cohort summary strip ---------- */
   .summary{max-width:920px;margin:20px auto 0;padding:0 20px;display:grid;
     grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
@@ -1097,6 +1127,7 @@ function dashboardHtml(){
   // advisee gets neither panel -- just their requests and what they can ask for.
   if(!isAdvisee) h += fundsPanelHtml(d);
   h += requestsPanelHtml(d);
+  h += messagesPanelHtml(d);
   if(!isAdvisee) h += attendancePanelHtml(d);
   h += explainerPanelHtml(isAdvisee);
 
@@ -1147,6 +1178,33 @@ function fundsPanelHtml(d){
       + "Approved requests show up here once BRYC pays them.</div>";
   }
 
+  return h + "</div>";
+}
+
+/* Everything BRYC has emailed this student, newest first, so they can check
+ * what they were told and when without digging through their inbox. The list
+ * is filtered to them server-side; the page only renders what it is given. */
+function messagesPanelHtml(d){
+  const list = d.comms || [];
+  let h = '<div class="panel"><div class="panel-title">Messages From BRYC</div>';
+
+  if(!list.length){
+    h += '<div class="status-box status-pending">No messages yet. '
+      + "When BRYC emails you about a request, it will also show up here.</div>";
+    return h + "</div>";
+  }
+
+  h += '<div class="msg-list">' + list.map(function(c){
+    return '<div class="msg-row">'
+      + '<div class="msg-when">' + escapeHtml(c.whenLong || c.when) + "</div>"
+      + '<div class="msg-body">'
+      +   (c.kind ? '<span class="msg-kind">' + escapeHtml(c.kind) + "</span>" : "")
+      +   '<span class="msg-subj">' + escapeHtml(c.subject) + "</span>"
+      + "</div></div>";
+  }).join("") + "</div>";
+
+  h += '<div class="msg-note">These were sent to the email you signed in with. '
+    + "Check your spam folder if one never arrived.</div>";
   return h + "</div>";
 }
 
@@ -1548,6 +1606,7 @@ const ADMIN_EMAIL_DOMAIN = "thebryc.org";
 const SHEET_ID = "1J56K1q9DrIUC4YiLx_5R9vC3e2uq2KExcl6t1-0VhKw";  // PY27_BRYC Senior Request Form Tracker
 const SHEET_NAME = "Form Responses";        // raw Google Form submissions
 const FEE_BALANCE_SHEET = "Fee Payment Balance";
+const COMMS_SHEET = "Comms Log";           // written by the Apps Script; read-only here
 const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 
 // $150 for the academic year, the same for every fellow. This OVERRIDES the
@@ -1668,6 +1727,7 @@ let auth, accessToken, userEmail;
 let responses = [];       // parsed rows from "Form Responses"
 let colMap = {};          // resolved header positions
 let feeRows = [];         // parsed rows from "Fee Payment Balance"
+let commsRows = [];       // every email BRYC has sent, newest first
 let feeLayout = null;     // where the columns and triplets are
 let activeFilter = "all";
 let searchTerm = "";
@@ -2200,7 +2260,9 @@ function loadData(){
     sheetsGet(a1(SHEET_NAME, "A1:BZ")),
     sheetsGet(a1(FEE_BALANCE_SHEET, "A1:BZ")).catch(function(){ return []; }),
     // The attendance workbook doubles as the senior roster.
-    sheetsGetFrom(ATTENDANCE_SHEET_ID, a1(ATTENDANCE_TAB, "A1:BZ")).catch(function(){ return []; })
+    sheetsGetFrom(ATTENDANCE_SHEET_ID, a1(ATTENDANCE_TAB, "A1:BZ")).catch(function(){ return []; }),
+    // Created by the backend on its first send, so "missing" is normal at first.
+    sheetsGet(a1(COMMS_SHEET, "A1:H")).catch(function(){ return []; })
   ]).then(function(results){
     return ensureTrackingColumns(results[0]).then(function(rows){
       colMap = rows.length ? resolveColumns(rows[0]) : {};
@@ -2209,6 +2271,7 @@ function loadData(){
         .filter(function(r){ return r.name || r.email; });           // skip blank rows
       feeRows = parseFeeRows(results[1]);
       roster = parseRoster(results[2]);
+      commsRows = parseComms(results[3]);
       computeRosterOnly();
       applyCounselorDefault();
 
@@ -2520,6 +2583,51 @@ function rosterRowHtml(p){
     + "</div>";
 }
 
+/* ---- Comms log -------------------------------------------------------------
+ * Read-only view of what BRYC has already emailed a student, so a counselor can
+ * see the history without opening the spreadsheet. Written by the Apps Script;
+ * the dashboard never writes here.
+ * ------------------------------------------------------------------------ */
+function parseComms(rows){
+  if(!rows || rows.length < 2) return [];
+  const head = rows[0].map(function(h){ return String(h || "").trim().toLowerCase(); });
+  const at = function(name){ return head.indexOf(name); };
+  const iWhen = at("when"), iWho = at("student"), iMail = at("email"),
+        iType = at("request type"), iKind = at("notification"),
+        iSubj = at("subject"), iBy = at("sent by");
+  const get = function(row, i){ return i > -1 ? String(row[i] || "").trim() : ""; };
+  return rows.slice(1).map(function(row){
+    return { when: get(row, iWhen), student: get(row, iWho),
+             email: get(row, iMail).toLowerCase(), type: get(row, iType),
+             kind: get(row, iKind), subject: get(row, iSubj), by: get(row, iBy) };
+  }).filter(function(c){ return c.email || c.student; }).reverse();  // newest first
+}
+
+/** Emails already sent to this student about this kind of request. */
+function commsFor(r){
+  const email = String(r.email || "").trim().toLowerCase();
+  if(!email) return [];
+  return commsRows.filter(function(c){ return c.email === email; });
+}
+
+function commsHtml(r){
+  const list = commsFor(r);
+  if(!list.length){
+    return '<div class="comms"><div class="comms-head">Emails sent</div>'
+      + '<div class="comms-none">Nothing has been emailed to this student yet.</div></div>';
+  }
+  return '<div class="comms"><div class="comms-head">Emails sent &mdash; ' + list.length + '</div>'
+    + list.map(function(c){
+        return '<div class="comms-row">'
+          + '<span class="comms-when">' + escapeHtml(c.when) + "</span>"
+          + '<span class="comms-kind">' + escapeHtml(c.kind || "Email") + "</span>"
+          + '<span class="comms-subj">' + escapeHtml(c.subject) + "</span>"
+          + '<span class="comms-by">' + escapeHtml(c.by || "Automatic") + "</span>"
+          + "</div>";
+      }).join("")
+    + "</div>";
+}
+
 function detailGridHtml(r){
   // Driven by RESPONSE_FIELDS, same as everything else. This was the last
   // survivor of the old positional COLUMN_ORDER/FIELD_LABELS design; because it
@@ -2543,7 +2651,7 @@ function detailGridHtml(r){
       + "</div>";
   }
   if(!rows) rows = '<div class="dg-value" style="grid-column:1/-1;color:var(--muted);">No extra detail was submitted with this request.</div>';
-  return '<div class="detail-grid">' + rows + "</div>";
+  return '<div class="detail-grid">' + rows + "</div>" + commsHtml(r);
 }
 
 function messageFieldHtml(r){

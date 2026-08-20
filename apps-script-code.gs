@@ -459,8 +459,47 @@ function buildPortalData_(email) {
     role: isAdviseeOnly ? 'advisee' : 'fellow',
     funds: funds,
     attendance: attendance,
-    requests: requests
+    requests: requests,
+    comms: commsForStudent_(email)
   };
+}
+
+/**
+ * The emails BRYC has sent this one student, newest first, for their portal.
+ * Filtered server-side by address -- a student is never sent anybody else's
+ * history. Only the date and what it was about go out; the "Sent By" column
+ * stays internal, so staff addresses are not exposed to students.
+ */
+function commsForStudent_(email) {
+  const want = normalizeEmail_(email);
+  if (!want) return [];
+  try {
+    const sheet = tracker_().getSheetByName(COMMS_SHEET);
+    if (!sheet) return [];               // nothing sent yet; tab not created
+    const last = sheet.getLastRow();
+    if (last < 2) return [];
+    const rows = sheet.getRange(1, 1, last, COMMS_HEADERS.length).getValues();
+    const head = rows[0].map(function (h) { return String(h || '').trim().toLowerCase(); });
+    const iWhen = head.indexOf('when'), iMail = head.indexOf('email'),
+          iKind = head.indexOf('notification'), iSubj = head.indexOf('subject');
+    if (iMail === -1) return [];
+    const tz = Session.getScriptTimeZone();
+    const out = [];
+    for (let i = 1; i < rows.length; i++) {
+      if (normalizeEmail_(rows[i][iMail]) !== want) continue;
+      const raw = iWhen > -1 ? rows[i][iWhen] : '';
+      out.push({
+        when: raw instanceof Date ? Utilities.formatDate(raw, tz, 'MMM d, yyyy') : String(raw || ''),
+        whenLong: raw instanceof Date ? Utilities.formatDate(raw, tz, "MMM d, yyyy 'at' h:mm a") : String(raw || ''),
+        kind: iKind > -1 ? String(rows[i][iKind] || '').trim() : '',
+        subject: iSubj > -1 ? String(rows[i][iSubj] || '').trim() : ''
+      });
+    }
+    return out.reverse();               // newest first
+  } catch (err) {
+    console.error('Could not read the comms log for the portal: ' + err);
+    return [];                          // never let this break a sign-in
+  }
 }
 
 /* ---------------------------------------------------------------------------
