@@ -1702,8 +1702,34 @@ function doSignIn(){
       showAccessDenied();
       return;
     }
-    const cred = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
-    accessToken = cred && cred.accessToken;
+    // Getting the Sheets access token out of the sign-in result is version
+    // dependent: the compat SDK resolves with {user, credential, ...} while the
+    // static credentialFromResult() is the modular implementation and returns
+    // null when handed a compat result. Take whichever actually yields a token.
+    let cred = null;
+    try {
+      if(typeof firebase.auth.GoogleAuthProvider.credentialFromResult === "function"){
+        cred = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
+      }
+    } catch(e){ cred = null; }
+    if(!cred || !cred.accessToken) cred = result.credential || null;
+    if((!cred || !cred.accessToken) && result.additionalUserInfo){
+      cred = result.additionalUserInfo.credential || cred;
+    }
+    accessToken = cred && (cred.accessToken || cred.oauthAccessToken);
+
+    // Without it every Sheets call fails with "invalid authentication
+    // credentials", which reads like a bug in the page rather than a missing
+    // permission. Say so plainly instead.
+    if(!accessToken){
+      auth.signOut();
+      const box = document.getElementById("auth-error");
+      box.textContent = "Signed in, but Google didn't grant permission to read the spreadsheets. "
+        + "Sign in again and make sure you allow spreadsheet access.";
+      box.style.display = "block";
+      return;
+    }
+
     userEmail = email;
     onSignedIn();
   }).catch(function(err){
@@ -1751,7 +1777,7 @@ function sheetsGet(range){
 function sheetsGetFrom(spreadsheetId, range){
   const url = "https://sheets.googleapis.com/v4/spreadsheets/" + spreadsheetId + "/values/" + encodeURIComponent(range);
   return fetch(url, { headers: { Authorization: "Bearer " + accessToken } }).then(function(res){
-    if(!res.ok) return res.json().then(function(b){ throw new Error(b.error && b.error.message ? b.error.message : ("HTTP " + res.status)); });
+    if(!res.ok) return res.json().then(function(b){ throw new Error(apiError(res, b)); });
     return res.json().then(function(b){ return b.values || []; });
   });
 }
@@ -1762,7 +1788,7 @@ function sheetsUpdate(range, values){
     headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
     body: JSON.stringify({ values: values })
   }).then(function(res){
-    if(!res.ok) return res.json().then(function(b){ throw new Error(b.error && b.error.message ? b.error.message : ("HTTP " + res.status)); });
+    if(!res.ok) return res.json().then(function(b){ throw new Error(apiError(res, b)); });
     return res.json();
   });
 }
@@ -1775,6 +1801,18 @@ function sheetsUpdate(range, values){
  * this dashboard touches has a space in its name ("Form Responses",
  * "Fee Payment Balance", "Grade 12"), so every range must go through here.
  */
+/**
+ * Turns a Sheets API failure into something a counselor can act on. A 401 means
+ * the hour-long Google token has expired, which is not a spreadsheet problem
+ * and shouldn't be reported as one.
+ */
+function apiError(res, body){
+  if(res.status === 401) return "Your Google sign-in expired. Click Sign out, then sign in again.";
+  if(res.status === 403) return "Your account doesn't have access to that spreadsheet. Ask for Editor access to the tracker.";
+  const msg = body && body.error && body.error.message ? body.error.message : ("HTTP " + res.status);
+  return msg;
+}
+
 function a1(sheet, range){
   return "'" + String(sheet).replace(/'/g, "''") + "'!" + range;
 }
@@ -1926,7 +1964,7 @@ function backfillFeeEmails(){
       headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
       body: JSON.stringify({ valueInputOption: "USER_ENTERED", data: writes })
     }).then(function(res){
-      if(!res.ok) return res.json().then(function(b){ throw new Error(b.error && b.error.message ? b.error.message : ("HTTP " + res.status)); });
+      if(!res.ok) return res.json().then(function(b){ throw new Error(apiError(res, b)); });
       return writes.length;
     });
   });
@@ -2030,7 +2068,7 @@ function provisionRosterFunds(){
     headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
     body: JSON.stringify({ values: rows })
   }).then(function(res){
-    if(!res.ok) return res.json().then(function(b){ throw new Error(b.error && b.error.message ? b.error.message : ("HTTP " + res.status)); });
+    if(!res.ok) return res.json().then(function(b){ throw new Error(apiError(res, b)); });
     missing.forEach(function(p){
       feeRows.push({ sheetRow: -1, name: p.name, email: byName[p.key] || "",
                      startingFunds: DEFAULT_STARTING_FUNDS, spent: 0,
@@ -2089,9 +2127,17 @@ function loadData(){
       });
     });
   }).catch(function(err){
+    // Only suggest checking tab names when the failure actually looks like a
+    // naming/range problem -- offering it after a sign-in failure sends people
+    // hunting through the spreadsheet for a fault that isn't there.
+    const m = err.message || "";
+    const nameProblem = /Unable to parse range|not found|Requested entity/i.test(m);
     document.getElementById("list").innerHTML =
-      `<div class="empty-state">Couldn't load data: ${escapeHtml(err.message)}<br/>` +
-      `Check that the tabs are named "${escapeHtml(SHEET_NAME)}" and "${escapeHtml(FEE_BALANCE_SHEET)}".</div>`;
+      `<div class="empty-state">Couldn't load data: ${escapeHtml(m)}` +
+      (nameProblem
+        ? `<br/>Check that the tabs are named "${escapeHtml(SHEET_NAME)}" and "${escapeHtml(FEE_BALANCE_SHEET)}".`
+        : "") +
+      `</div>`;
   });
 }
 
