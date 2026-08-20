@@ -541,7 +541,8 @@
     <label class="toggle-row" id="mine-only-wrap" style="display:none;margin-left:0;"><input type="checkbox" id="mine-only" checked /> <span id="mine-only-label">Only my students</span></label>
     <label class="toggle-row"><input type="checkbox" id="unfulfilled-only" checked /> Show unfulfilled only</label>
     <span class="count-note" id="count-note"></span>
-    <button id="export-btn" class="filter-tab" style="margin-left:auto;">Export funds usage (CSV)</button>
+    <button id="export-requests" class="filter-tab" style="margin-left:auto;" title="One row per request — what was asked for, and who applied to a partner school">Export requests (CSV)</button>
+    <button id="export-payments" class="filter-tab" title="One row per payment actually made — safe to sum">Export payments (CSV)</button>
   </div>
 
   <div class="summary" id="summary"><!-- rendered by JS --></div>
@@ -1163,7 +1164,7 @@ function nextStepFor(r){
   const t = String(r.type || "");
   if(t.indexOf("senior funds") > -1){
     return r.isPayment
-      ? "You don't pay anything yourself. Once BRYC approves this, we pay the fee directly and it comes out of your senior funds. Make sure any login you gave us still works."
+      ? "You will never be given a check or cash \u2014 once BRYC approves this we pay the school, testing agency or provider directly, and it comes out of your senior funds. Make sure any login you gave us still works."
       : "Your counselor will process your fee waiver through your partner school. Watch your email in case they need anything else from you.";
   }
   if(t.indexOf("writing coach") > -1) return "Rachel will email you to set up a time. Have your draft shared and ready before your session.";
@@ -1226,7 +1227,7 @@ function requestBodyHtml(r){
   h += '<div class="next-step"><b>' + (complete ? "All done" : "What happens next") + "</b>"
     + (complete
         ? (r.isPayment
-            ? "BRYC has paid this fee and it's reflected in your senior funds balance above."
+            ? "BRYC has paid this directly and it's reflected in your senior funds balance above."
             : "This request has been taken care of. Reach out to your counselor if you need anything else.")
         : escapeHtml(nextStepFor(r)))
     + "</div>";
@@ -1254,68 +1255,73 @@ function explainerPanelHtml(isAdvisee){
     +   '<span class="chev">&#9660;</span>'
     + "</button>";
 
-  if(explainerOpen && isAdvisee){
-    h += '<div class="explainer-body">'
+  if(!explainerOpen) return h + "</div>";
+
+  // ---------------------------------------------------------------
+  // ADVISEES. Senior funds are a Fellows benefit and are deliberately
+  // not mentioned here at all -- an advisee shouldn't have to work out
+  // which parts of the page don't apply to them.
+  // ---------------------------------------------------------------
+  if(isAdvisee){
+    return h + '<div class="explainer-body">'
       + "<h4>What's available to you</h4>"
       + '<div class="covered"><span class="mark">&#10003;</span><span><b>Writing coach support</b> &mdash; '
-      + "help with your personal statement, essays, and applications.</span></div>"
+      + "help with your personal statement, essays and applications.</span></div>"
       + '<div class="covered"><span class="mark">&#10003;</span><span><b>College Aid Pro</b> &mdash; '
       + "a free premium account for working through financial aid and comparing costs.</span></div>"
       + '<div class="covered"><span class="mark">&#10003;</span><span><b>MasteryPrep</b> &mdash; '
       + "an ACT prep platform login.</span></div>"
 
-      + "<h4>About senior funds</h4>"
-      + "<p>Senior funds are a <b>BRYC Senior Fellow</b> benefit, so they're not part of the Advising program. "
-      + "If you think that's wrong, or you'd like to know more about becoming a Fellow, ask your BRYC advisor.</p>"
+      + "<h4>Application fee waivers</h4>"
+      + "<p>If you apply to a <b>BRYC partner school</b>, you can receive a fee waiver from that school. "
+      + "Choose that option on the request form and your advisor will walk you through it.</p>"
 
       + "<h4>How to request something</h4>"
-      + "<p>Use the request form and pick what you need. Your advisor is notified automatically, and "
-      + "you'll be able to track it right here.</p>"
+      + "<p>Use the request form and pick what you need. Your advisor is notified automatically, "
+      + "and you can track it right here.</p>"
       + '<a class="newreq" href="' + REQUEST_FORM_URL + '" target="_blank" rel="noopener noreferrer">Submit a new request</a>'
-      + "</div>";
-    return h + "</div>";
+      + "</div></div>";
   }
 
-  if(explainerOpen){
-    h += '<div class="explainer-body">'
-      + "<h4>How much you get</h4>"
-      + "<p>Every BRYC Senior Fellow gets <b>$" + FUNDS_FOR_YEAR + " for the school year</b> to spend on the costs "
-      + "that come with applying to college &mdash; it's one pot for the whole year, not a fresh amount each semester, "
-      + "so it's worth planning what you'll need. You don't handle the money yourself &mdash; you request it here, "
-      + "and BRYC pays the fee directly.</p>"
+  // ---------------------------------------------------------------
+  // FELLOWS.
+  // ---------------------------------------------------------------
+  return h + '<div class="explainer-body">'
+    + "<h4>How much you get</h4>"
+    + "<p><b>$" + FUNDS_FOR_YEAR + " for the school year</b> &mdash; one pot, not a fresh amount each semester.</p>"
 
-      + "<h4>What it covers</h4>"
-      + ["College application fees",
-         "Registering for the ACT",
-         "ACT score report fees",
-         "College enrollment deposits",
-         "CSS Profile fees for additional schools"].map(function(x){
-           return '<div class="covered"><span class="mark">&#10003;</span><span>' + x + "</span></div>";
-         }).join("")
-      + '<div class="covered"><span class="mark">&#10003;</span><span>Something else college-related &mdash; '
-      + "choose <b>Other</b> on the request form and explain what you need. Ask before you assume it's covered.</span></div>"
+    + "<h4>What it covers</h4>"
+    + ["Postsecondary application fees",
+       "Registering for the ACT",
+       "ACT score report fees",
+       "Enrollment and housing deposits",
+       "CSS Profile fees for additional schools"].map(function(x){
+         return '<div class="covered"><span class="mark">&#10003;</span><span>' + x + "</span></div>";
+       }).join("")
+    + '<div class="covered"><span class="mark">&#10003;</span><span>Something else tied to your postsecondary plans &mdash; '
+    + "college, trade school, certificate or training program. Choose <b>Other</b> on the form and explain what you need.</span></div>"
 
-      + "<h4>What it doesn't cover</h4>"
-      + '<div class="covered"><span class="mark no">&#10007;</span><span>Anything unrelated to applying to or enrolling in college</span></div>'
-      + '<div class="covered"><span class="mark no">&#10007;</span><span>Cash paid directly to you &mdash; BRYC always pays the school or testing agency</span></div>'
+    + "<h4>What it doesn't cover</h4>"
+    + '<div class="covered"><span class="mark no">&#10007;</span><span><b>You will never be given a check or cash.</b> '
+    + "BRYC pays the school, testing agency or provider directly, every time.</span></div>"
+    + '<div class="covered"><span class="mark no">&#10007;</span><span>Anything unrelated to your postsecondary plans</span></div>'
 
-      + "<h4>Staying eligible</h4>"
-      + "<p>You need to keep your attendance at or above <b>" + ATTENDANCE_MIN_PERCENT_TEXT + "% attendance</b> to use your senior funds. "
-      + "Your current attendance is in the Attendance section above. If you've fallen below it, talk to your "
-      + "counselor &mdash; don't just assume you've lost your funds.</p>"
+    + "<h4>Staying eligible</h4>"
+    + "<p>To use your senior funds you need all three:</p>"
+    + '<div class="covered"><span class="mark">&#10003;</span><span><b>' + ATTENDANCE_MIN_PERCENT_TEXT + '% attendance</b> or better &mdash; yours is in the Attendance section above.</span></div>'
+    + '<div class="covered"><span class="mark">&#10003;</span><span><b>Good standing</b> with BRYC.</span></div>'
+    + '<div class="covered"><span class="mark">&#10003;</span><span><b>Financial aid offer meetings</b> completed with your guardian in the Spring semester.</span></div>'
+    + "<p>If you've slipped on any of these, talk to your counselor &mdash; don't assume you've lost your funds.</p>"
 
-      + "<h4>Attending a partner school?</h4>"
-      + "<p>If your high school is a BRYC Advising partner, some fees are handled through a fee waiver instead of "
-      + "your senior funds. The request form asks you about this and routes you the right way.</p>"
+    + "<h4>Attending a partner school?</h4>"
+    + "<p>If you apply to a BRYC partner school, some fees are handled by a waiver from that school rather than "
+    + "out of your senior funds. The request form asks about this and routes you the right way.</p>"
 
-      + "<h4>How to request it</h4>"
-      + "<p>Use the request form and choose <b>I am requesting to use my senior funds</b>. Have the details ready: "
-      + "which college or test, how much, and the deadline. The more complete your request, the faster it moves.</p>"
-      + '<a class="newreq" href="' + REQUEST_FORM_URL + '" target="_blank" rel="noopener noreferrer">Submit a new request</a>'
-      + "</div>";
-  }
-
-  return h + "</div>";
+    + "<h4>How to request it</h4>"
+    + "<p>Use the request form and choose <b>I am requesting to use my senior funds</b>. Have the details ready: "
+    + "which school or test, how much, and the deadline. The more complete your request, the faster it moves.</p>"
+    + '<a class="newreq" href="' + REQUEST_FORM_URL + '" target="_blank" rel="noopener noreferrer">Submit a new request</a>'
+    + "</div></div>";
 }
 
 /* ===========================================================================
@@ -1888,10 +1894,16 @@ function parseFeeRows(rows){
     const sheetStarting = money(row[feeLayout.starting]);   // stale $100; kept only to warn
     const additional = feeLayout.additional > -1 ? (money(row[feeLayout.additional]) || 0) : 0;
     let spent = 0, used = 0;
+    const payments = [];   // kept for the year-end export, not just the total
     feeLayout.triplets.forEach(function(t){
       const amt = t.amount > -1 ? money(row[t.amount]) : null;
       const type = String(row[t.type] || "").trim();
-      if(type || amt !== null){ used++; if(amt !== null) spent += amt; }
+      const date = t.date > -1 ? row[t.date] : "";
+      if(type || amt !== null){
+        used++;
+        if(amt !== null) spent += amt;
+        payments.push({ type: type, amount: amt, date: date instanceof Date ? date.toLocaleDateString() : String(date || "") });
+      }
     });
     const start = DEFAULT_STARTING_FUNDS + additional;
     return {
@@ -1902,6 +1914,7 @@ function parseFeeRows(rows){
       spent: spent,
       remaining: start - spent,
       usedTriplets: used,
+      payments: payments,
       // Flags rows still carrying last year's figure, so it can be surfaced.
       sheetStartingStale: sheetStarting !== null && sheetStarting !== DEFAULT_STARTING_FUNDS
     };
@@ -2350,6 +2363,7 @@ function queueRowHtml(r){
     + '<div class="qmain">'
     +   '<div class="qname">' + escapeHtml(r.name || "(no name)") + "</div>"
     +   '<div class="qmeta">' + escapeHtml(type) + " &middot; " + escapeHtml(r.counselor || "no counselor")
+    +     attendanceChip(r.name)
     +     (r.messageToStudent ? ' &middot; <span class="msg-hint">note sent</span>' : "")
     +     (overBudget
           ? ' &middot; <span class="over-budget">asking $' + asking.toFixed(2)
@@ -2379,14 +2393,34 @@ function visibleRosterOnly(){
   return mineOnly ? [] : rosterOnly;
 }
 
+/**
+ * The attendance % for whoever made this request, matched against the roster
+ * already loaded from the attendance workbook. Null when they aren't on it.
+ * Shown on every request because senior funds eligibility depends on it -- a
+ * counselor shouldn't have to go and look it up somewhere else.
+ */
+function attendancePctFor(name){
+  const k = nameKey(name);
+  if(!k) return null;
+  const hit = roster.find(function(x){ return x.key === k; });
+  return (hit && hit.percent !== null && hit.percent !== undefined) ? hit.percent : null;
+}
+
+function attendanceChip(name){
+  const pct = attendancePctFor(name);
+  if(pct === null) return "";
+  const low = pct < 80;
+  return ' &middot; <span class="att' + (low ? " att-low" : "") + '">' + pct + "% attendance</span>";
+}
+
 function rosterRowHtml(p){
   const low = p.percent !== null && p.percent < 80;
   const att = p.percent === null ? "attendance not recorded"
-            : p.percent + "% attendance" + (p.percent < 80 ? " — below 80%" : "");
+            : '<span class="att' + (low ? " att-low" : "") + '">' + p.percent + "% attendance</span>";
   return '<div class="qrow roster">'
     + '<div class="qmain">'
     +   '<div class="qname">' + escapeHtml(p.name) + "</div>"
-    +   '<div class="qmeta">No requests yet &middot; ' + escapeHtml(att)
+    +   '<div class="qmeta">No requests yet &middot; ' + att
     +     (p.remaining !== null ? " &middot; $" + p.remaining.toFixed(2) + " available" : "")
     +   "</div>"
     + "</div>"
@@ -2407,6 +2441,15 @@ function detailGridHtml(r){
     rows += '<div class="dg-label">' + escapeHtml(f.label) + "</div>"
           + '<div class="dg-value">' + escapeHtml(v) + "</div>";
   });
+  // Attendance isn't a form field -- it comes from the attendance workbook --
+  // but it belongs here, because it's what decides senior funds eligibility.
+  const pct = attendancePctFor(r.name);
+  if(pct !== null){
+    rows += '<div class="dg-label">Attendance</div><div class="dg-value">'
+      + '<span class="att' + (pct < 80 ? " att-low" : "") + '">' + pct + "%</span>"
+      + (pct < 80 ? " — below the 80% requirement for senior funds" : " — meets the 80% requirement")
+      + "</div>";
+  }
   if(!rows) rows = '<div class="dg-value" style="grid-column:1/-1;color:var(--muted);">No extra detail was submitted with this request.</div>';
   return '<div class="detail-grid">' + rows + "</div>";
 }
@@ -2471,7 +2514,7 @@ function cardHtml(r){
     +   '<span class="req-badge">' + escapeHtml(type) + "</span>"
     +   "<div><div class=\"rc-name\">" + escapeHtml(r.name || "(no name)") + "</div>"
     +   '<div class="rc-meta">' + escapeHtml(r.timestamp) + " &middot; " + escapeHtml(r.email)
-    +     " &middot; Counselor: " + escapeHtml(r.counselor) + "</div></div>"
+    +     " &middot; Counselor: " + escapeHtml(r.counselor) + attendanceChip(r.name) + "</div></div>"
     +   '<span class="spacer"></span>'
     +   (r.fulfilled ? '<span class="fulfilled-pill">Fulfilled</span>'
                      : '<span class="req-badge">' + escapeHtml(r.stage) + "</span>")
@@ -2501,31 +2544,74 @@ function cardHtml(r){
  * come from the Spending Log (what was actually paid), not from the amount
  * typed on a request.
  */
-function buildExportRows(){
-  // Context (school, counselor) comes from each fellow's own request rows.
-  const ctxByKey = {};
+/** Fellow context (school, counselor, role) drawn from their own request rows. */
+function fellowContext(){
+  const ctx = {};
   responses.forEach(function(r){
-    const keys = [String(r.email || "").toLowerCase(), nameKey(r.name)].filter(Boolean);
-    keys.forEach(function(k){
-      if(ctxByKey[k]) return;
-      ctxByKey[k] = {
-        highSchool: r.highSchool || r.capHighSchool || "",
-        counselor: r.counselor || "",
-        role: r.role || ""
-      };
+    [String(r.email || "").toLowerCase(), nameKey(r.name)].filter(Boolean).forEach(function(k){
+      if(ctx[k]) return;
+      ctx[k] = { highSchool: r.highSchool || r.capHighSchool || "",
+                 counselor: r.counselor || "", role: r.role || "" };
     });
   });
+  return ctx;
+}
 
-  const header = ["Fellow Name","Email","High School","Counselor","Fellow or Advisee",
-                  "Starting Funds","Total Spent","Remaining","Payments Recorded"];
-  const rows = [header];
+/**
+ * One row per REQUEST. Answers "what did fellows ask for" and "how many applied
+ * to a partner school" -- pivot on Request type, Fee type or Partner school.
+ * Deliberately carries no running totals, so summing a column can't double count.
+ */
+function buildRequestsExport(){
+  const ctx = fellowContext();
+  const rows = [[
+    "Fellow name","Email","Fellow or Advisee","Counselor","High school","Attendance %",
+    "Date submitted","Request type","Fee type","School / test",
+    "Amount requested","Applied to partner school?","Partner school",
+    "Stage","Fulfilled"
+  ]];
+  responses.slice().sort(function(a,b){ return String(a.name).localeCompare(String(b.name)); })
+    .forEach(function(r){
+      const c = ctx[String(r.email || "").toLowerCase()] || ctx[nameKey(r.name)] || {};
+      const pct = attendancePctFor(r.name);
+      rows.push([
+        r.name, r.email, r.role || c.role || "", r.counselor || "", r.highSchool || c.highSchool || "",
+        pct === null ? "" : pct,
+        r.timestamp, requestTypeOf(r) || "", r.feeType || "",
+        r.college || r.actTestDate || "",
+        defaultAmountFor(r) || "",
+        r.partnerApplied || "", r.partnerSchool || "",
+        r.stage || "", r.fulfilled ? "Yes" : "No"
+      ]);
+    });
+  return rows;
+}
 
+/**
+ * One row per RECORDED PAYMENT, straight from the Fee Payment Balance triplets.
+ * Answers "how much did they spend and on what" -- this is money actually paid,
+ * not amounts requested, so the Amount column is safe to sum.
+ */
+function buildPaymentsExport(){
+  const ctx = fellowContext();
+  const rows = [[
+    "Fellow name","Email","Counselor","High school",
+    "Type of fee","Amount paid","Date paid",
+    "Starting funds","Total spent","Remaining"
+  ]];
   feeRows.slice().sort(function(a,b){ return a.name.localeCompare(b.name); }).forEach(function(f){
-    const ctx = ctxByKey[f.email] || ctxByKey[nameKey(f.name)] || {};
-    rows.push([f.name, f.email, ctx.highSchool || "", ctx.counselor || "", ctx.role || "",
-               f.startingFunds, f.spent, f.remaining, f.usedTriplets]);
+    const c = ctx[f.email] || ctx[nameKey(f.name)] || {};
+    if(!f.payments.length){
+      rows.push([f.name, f.email, c.counselor || "", c.highSchool || "",
+                 "(no payments)", "", "", f.startingFunds, f.spent, f.remaining]);
+      return;
+    }
+    f.payments.forEach(function(pmt){
+      rows.push([f.name, f.email, c.counselor || "", c.highSchool || "",
+                 pmt.type, pmt.amount === null ? "" : pmt.amount, pmt.date,
+                 f.startingFunds, f.spent, f.remaining]);
+    });
   });
-
   return rows;
 }
 
@@ -2538,14 +2624,13 @@ function toCsv(rows){
   }).join("\n");
 }
 
-function exportFundsUsage(){
-  const rows = buildExportRows();
+function exportFundsUsage(rows, label){
   if(rows.length < 2){ showToast("Nothing to export yet."); return; }
   const blob = new Blob([toCsv(rows)], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "bryc-senior-funds-usage-" + new Date().toISOString().slice(0, 10) + ".csv";
+  a.download = "bryc-" + label + "-" + new Date().toISOString().slice(0, 10) + ".csv";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -2594,6 +2679,7 @@ function saveRow(sheetRowStr, opts){
   if(btn){ btn.disabled = true; btn.textContent = "Saving…"; }
 
   const messageChanged = String(message).trim() !== String(r.messageToStudent).trim();
+  const stageChanged = stage !== r.stage;
   const becameFulfilled = !wasFulfilled && nowFulfilled;
 
   sheetsUpdate(range, [[nowFulfilled ? "TRUE" : "FALSE", notes, stage, message]])
@@ -2627,9 +2713,13 @@ function saveRow(sheetRowStr, opts){
 
       // Now send the email in the background and report only if it's worth
       // saying something about.
+      // One email per save, in order of what the student most needs to hear.
+      // Completion supersedes a stage change, so nobody gets both for the same
+      // click, and a counselor's note supersedes a bare stage bump.
       let pending = null;
-      if(becameFulfilled) pending = notifyStudent(sheetRow, "fulfilled");
-      else if(messageChanged && String(message).trim()) pending = notifyStudent(sheetRow, "message");
+      if(becameFulfilled)                                pending = notifyStudent(sheetRow, "fulfilled");
+      else if(messageChanged && String(message).trim())  pending = notifyStudent(sheetRow, "message");
+      else if(stageChanged)                              pending = notifyStudent(sheetRow, "stage");
       if(pending){
         pending.then(function(res){
           if(res && res.status === "ok") showToast("Student emailed.");
@@ -2672,7 +2762,12 @@ window.__staffBoot = function(){
   document.getElementById("email-students").addEventListener("change", function(e){
     emailStudents = e.target.checked;
   });
-  document.getElementById("export-btn").addEventListener("click", exportFundsUsage);
+  document.getElementById("export-requests").addEventListener("click", function(){
+    exportFundsUsage(buildRequestsExport(), "requests");
+  });
+  document.getElementById("export-payments").addEventListener("click", function(){
+    exportFundsUsage(buildPaymentsExport(), "payments");
+  });
   document.getElementById("mine-only").addEventListener("change", function(e){
     mineOnly = e.target.checked;
     render();

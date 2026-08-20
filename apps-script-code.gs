@@ -580,6 +580,26 @@ function handleNotifyStudent(e) {
       + portalLinkLine_()
       + '\nThe BRYC Team';
 
+  } else if (kind === 'stage') {
+    // Progress update. "Complete" is deliberately NOT handled here -- that goes
+    // out as the richer 'fulfilled' email instead, so nobody gets both.
+    const stage = String(cell_(row, map, '_Stage') || '').trim();
+    const lines = {
+      'Received':  'We have your ' + kindOf + ' and it is in the queue. Your counselor will review it shortly.',
+      'In review': 'Your ' + kindOf + ' is being reviewed by your BRYC counselor now.',
+      'Approved':  isPaymentRequest_(row, map)
+                     ? 'Your ' + kindOf + ' has been approved. BRYC is arranging the payment now -- you do not need to pay anything yourself.'
+                     : 'Your ' + kindOf + ' has been approved and is being arranged now.'
+    };
+    if (!lines[stage]) {
+      return { status: 'error', message: 'No update email is sent for the stage "' + stage + '".' };
+    }
+    subject = 'Update on your BRYC ' + kindOf + ': ' + stage;
+    body = 'Hi ' + first + ',\n\n'
+      + lines[stage] + '\n'
+      + portalLinkLine_()
+      + '\nNo action is needed from you unless your counselor asks.\n\nThe BRYC Team';
+
   } else {
     return { status: 'error', message: 'Unknown notification type.' };
   }
