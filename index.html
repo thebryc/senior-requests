@@ -850,6 +850,16 @@ function sentenceCase(str){
   return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
 }
 
+/* Capitalises the first letter of every word and leaves the rest of each word
+ * alone, so brand names keep their own casing: "UWorld account request" becomes
+ * "UWorld Account Request", not "Uworld ...". Display only -- the underlying
+ * lowercase wording is still what the emails drop into mid-sentence. */
+function titleCase(str){
+  return String(str || "").trim().replace(/\S+/g, function(word){
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  });
+}
+
 function money(n){
   const v = Number(n) || 0;
   return "$" + v.toFixed(2);
@@ -1273,7 +1283,7 @@ function requestsPanelHtml(d){
     const complete = r.stage === "Complete" || r.fulfilled;
     return '<div class="req-card' + (open ? " open" : "") + '">'
       + '<div class="req-head" data-req="' + i + '">'
-      +   '<div class="txt"><div class="req-type">' + escapeHtml(sentenceCase(r.friendlyType || r.type)) + "</div>"
+      +   '<div class="txt"><div class="req-type">' + escapeHtml(titleCase(r.friendlyType || r.type)) + "</div>"
       +   '<div class="req-date">Received ' + escapeHtml(r.submittedLong || r.submitted || "recently") + "</div></div>"
       +   '<span class="pill ' + (complete ? "pill-ok" : "pill-pending") + '">'
       +     escapeHtml(complete ? (r.isPayment ? "Paid" : "Fulfilled") : r.stage) + "</span>"
