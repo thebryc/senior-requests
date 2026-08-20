@@ -473,6 +473,7 @@ function doGet(e) {
   let result;
 
   try {
+    ensureSweepInstalled_();
     if (action === 'requestPin') {
       result = handleRequestPin(e.parameter.email);
     } else if (action === 'verifyPin') {
@@ -746,7 +747,31 @@ function sweepNotifications() {
   }
 }
 
-/** Run once from the editor to turn automatic sending on. */
+/**
+ * Turns automatic sending on by itself the first time anybody uses the site,
+ * so nobody has to hunt for the Run dropdown in the editor. The result is
+ * remembered in script properties, so this costs one cheap lookup, once.
+ */
+function ensureSweepInstalled_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('sweep_installed') === 'yes') return;
+  try {
+    const exists = ScriptApp.getProjectTriggers().some(function (t) {
+      return t.getHandlerFunction() === 'sweepNotifications';
+    });
+    if (!exists) {
+      ScriptApp.newTrigger('sweepNotifications').timeBased().everyMinutes(5).create();
+      console.log('Automatic student emails switched on automatically.');
+    }
+    props.setProperty('sweep_installed', 'yes');
+  } catch (err) {
+    // Never let this stop a student signing in -- the editor function below
+    // is still there as a manual fallback.
+    console.error('Could not auto-install the sweep: ' + err);
+  }
+}
+
+/** Manual fallback: run once from the editor if the automatic install fails. */
 function installNotificationSweep() {
   removeNotificationSweep();
   ScriptApp.newTrigger('sweepNotifications').timeBased().everyMinutes(5).create();
