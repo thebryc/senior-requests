@@ -2295,7 +2295,16 @@ function render(){
   }
 
   container.className = viewMode === "queue" ? "queue" : "list";
-  let html = list.map(viewMode === "queue" ? queueRowHtml : cardHtml).join("");
+  let html;
+  try {
+    html = list.map(viewMode === "queue" ? queueRowHtml : cardHtml).join("");
+  } catch(err){
+    // Surface it rather than silently leaving the previous list on screen,
+    // which makes every button look broken.
+    container.innerHTML = '<div class="empty-state">Something went wrong drawing the list: '
+      + escapeHtml(err.message) + '<br/>Reload the page; if it persists, send this message on.</div>';
+    return;
+  }
 
   // Seniors on the attendance roster who have never submitted anything. They
   // sit below the real queue -- nothing to action, but easy to spot and chase.
@@ -2371,6 +2380,7 @@ function visibleRosterOnly(){
 }
 
 function rosterRowHtml(p){
+  const low = p.percent !== null && p.percent < 80;
   const att = p.percent === null ? "attendance not recorded"
             : p.percent + "% attendance" + (p.percent < 80 ? " — below 80%" : "");
   return '<div class="qrow roster">'
@@ -2380,18 +2390,24 @@ function rosterRowHtml(p){
     +     (p.remaining !== null ? " &middot; $" + p.remaining.toFixed(2) + " available" : "")
     +   "</div>"
     + "</div>"
-    + '<span class="qage' + (p.percent !== null && p.percent < 80 ? " old" : "") + '">roster</span>'
+    + '<span class="qage' + (low ? " old" : "") + '">' + (low ? "low attendance" : "roster") + "</span>"
     + "</div>";
 }
 
 function detailGridHtml(r){
+  // Driven by RESPONSE_FIELDS, same as everything else. This was the last
+  // survivor of the old positional COLUMN_ORDER/FIELD_LABELS design; because it
+  // referenced names that no longer exist, opening Details threw and left the
+  // whole list frozen -- which looked like several buttons being broken at once.
   let rows = "";
-  COLUMN_ORDER.forEach(function(key){
-    if(!FIELD_LABELS[key]) return;
-    const v = r[key];
-    if(!v) return;
-    rows += '<div class="dg-label">' + FIELD_LABELS[key] + '</div><div class="dg-value">' + escapeHtml(v) + "</div>";
+  RESPONSE_FIELDS.forEach(function(f){
+    if(!f.label) return;
+    const v = r[f.k];
+    if(v === "" || v === null || v === undefined) return;
+    rows += '<div class="dg-label">' + escapeHtml(f.label) + "</div>"
+          + '<div class="dg-value">' + escapeHtml(v) + "</div>";
   });
+  if(!rows) rows = '<div class="dg-value" style="grid-column:1/-1;color:var(--muted);">No extra detail was submitted with this request.</div>';
   return '<div class="detail-grid">' + rows + "</div>";
 }
 
@@ -2595,28 +2611,31 @@ function saveRow(sheetRowStr, opts){
       r.stage = stage;
       r.messageToStudent = message;
 
-      const mails = [];
-      if(becameFulfilled) mails.push(notifyStudent(sheetRow, "fulfilled"));
-      else if(messageChanged && String(message).trim()) mails.push(notifyStudent(sheetRow, "message"));
+      // The sheet is written and any payment logged, so update the screen NOW.
+      // Emailing the student is a JSONP round-trip that can take several
+      // seconds; waiting on it before re-rendering made "Mark done" look like
+      // it had done nothing at all.
+      if(feeRow){
+        showToast("Saved. Logged $" + amount.toFixed(2) + " to " + feeRow.name
+          + " — $" + feeRow.remaining.toFixed(2) + " left.");
+      } else {
+        showToast("Saved.");
+      }
+      if(btn){ btn.disabled = false; btn.textContent = btnLabel; }
+      renderFilterTabs();
+      render();
 
-      return Promise.all(mails).then(function(results){
-        const emailed = results.filter(function(x){ return x && x.status === "ok"; }).length;
-        const failed = results.filter(function(x){ return x && x.status && x.status !== "ok"; });
-
-        if(feeRow){
-          showToast("Saved. Logged $" + amount.toFixed(2) + " to " + feeRow.name
-            + " — $" + feeRow.remaining.toFixed(2) + " left."
-            + (emailed ? " Student emailed." : ""));
-        } else if(failed.length){
-          showToast("Saved, but the student email didn't send: " + (failed[0].message || failed[0].status));
-        } else {
-          showToast("Saved." + (emailed ? " Student emailed." : ""));
-        }
-
-        if(btn){ btn.disabled = false; btn.textContent = btnLabel; }
-        renderFilterTabs();
-        render();
-      });
+      // Now send the email in the background and report only if it's worth
+      // saying something about.
+      let pending = null;
+      if(becameFulfilled) pending = notifyStudent(sheetRow, "fulfilled");
+      else if(messageChanged && String(message).trim()) pending = notifyStudent(sheetRow, "message");
+      if(pending){
+        pending.then(function(res){
+          if(res && res.status === "ok") showToast("Student emailed.");
+          else if(res && res.status) showToast("Saved, but the student email didn't send: " + (res.message || res.status));
+        }).catch(function(){ /* already saved; a failed email isn't worth an alarm */ });
+      }
     })
     .catch(function(err){
       if(btn){ btn.disabled = false; btn.textContent = btnLabel; }
