@@ -541,6 +541,7 @@
     <label class="toggle-row" id="mine-only-wrap" style="display:none;margin-left:0;"><input type="checkbox" id="mine-only" checked /> <span id="mine-only-label">Only my students</span></label>
     <label class="toggle-row"><input type="checkbox" id="unfulfilled-only" checked /> Show unfulfilled only</label>
     <span class="count-note" id="count-note"></span>
+    <button id="refresh-btn" class="filter-tab" title="Re-read the tracker and the attendance sheet">&#8635; Refresh</button>
     <button id="export-requests" class="filter-tab" style="margin-left:auto;" title="One row per request — what was asked for, and who applied to a partner school">Export requests (CSV)</button>
     <button id="export-payments" class="filter-tab" title="One row per payment actually made — safe to sum">Export payments (CSV)</button>
   </div>
@@ -871,8 +872,8 @@ window.__backToStudentSite = function(){
 
 function modeTabsHtml(){
   return '<div class="mode-tabs">'
-    + '<button class="mode-tab' + (mode === "request" ? " active" : "") + '" data-mode="request">Request support</button>'
-    + '<button class="mode-tab' + (mode === "status" ? " active" : "") + '" data-mode="status">My funds &amp; requests</button>'
+    + '<button class="mode-tab' + (mode === "request" ? " active" : "") + '" data-mode="request">Request Support</button>'
+    + '<button class="mode-tab' + (mode === "status" ? " active" : "") + '" data-mode="status">My Funds &amp; Requests</button>'
     + '<button class="mode-tab mode-tab-staff' + (mode === "staff" ? " active" : "") + '" data-mode="staff">Staff</button>'
     + "</div>";
 }
@@ -2103,7 +2104,8 @@ function computeRosterOnly(){
 /* ===================== DATA LOAD ===================== */
 function loadData(){
   document.getElementById("list").innerHTML = `<div class="empty-state">Loading responses…</div>`;
-  Promise.all([
+  // Returned so the Refresh button can tell when it has finished.
+  return Promise.all([
     sheetsGet(a1(SHEET_NAME, "A1:BZ")),
     sheetsGet(a1(FEE_BALANCE_SHEET, "A1:BZ")).catch(function(){ return []; }),
     // The attendance workbook doubles as the senior roster.
@@ -2760,6 +2762,16 @@ window.__staffBoot = function(){
   });
   document.getElementById("email-students").addEventListener("change", function(e){
     emailStudents = e.target.checked;
+  });
+  document.getElementById("refresh-btn").addEventListener("click", function(){
+    const b = document.getElementById("refresh-btn");
+    b.disabled = true; b.textContent = "Refreshing\u2026";
+    loadData().then(function(){
+      b.disabled = false; b.innerHTML = "&#8635; Refresh";
+      showToast("Refreshed.");
+    }).catch(function(){
+      b.disabled = false; b.innerHTML = "&#8635; Refresh";
+    });
   });
   document.getElementById("export-requests").addEventListener("click", function(){
     exportFundsUsage(buildRequestsExport(), "requests");

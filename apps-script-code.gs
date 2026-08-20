@@ -92,7 +92,8 @@ const ATTENDANCE_SHEET_ID = '13j0yKuyPdOx_zdQgzyegD0yiAiuu3BQEVtKEWlJ20yU';
 const ATTENDANCE_TAB = 'Grade 12';       // seniors; other grades have their own tabs
 const ATTENDANCE_HEADER_ROW = 5;         // 1-based
 const ATTENDANCE_MIN_PERCENT = 80;       // BRYC's 80% requirement
-const ATTENDANCE_CACHE_SECONDS = 900;    // sheet changes weekly; 15 min is plenty
+const ATTENDANCE_CACHE_SECONDS = 60;     // effectively live; just stops one sign-in
+                                         // re-reading a 477-row sheet several times
 
 /* ---- Sign-in security ---- */
 const PIN_TTL_SECONDS = 600;             // one-time PIN lifetime: 10 minutes
