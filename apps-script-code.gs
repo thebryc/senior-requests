@@ -49,7 +49,7 @@ const FEE_BALANCE_SHEET = 'Fee Payment Balance';
 
 // Paste the deployed URL of bryc-senior-portal.html here; blank just omits the
 // "check your portal" link from student emails.
-const PORTAL_URL = 'https://thebryc.github.io/seniorrequests/';
+const PORTAL_URL = 'https://thebryc.org/request';
 
 // Counselors allowed to use bryc-admin.html and to trigger a student email.
 // Keep in sync with ALLOWED_ADMIN_EMAILS there. Addresses follow BRYC's
@@ -1029,4 +1029,80 @@ function diagnoseSheetsApi() {
     }
     console.log(code + '  ' + c[0] + '  ->  ' + note);
   });
+}
+
+
+/* ===========================================================================
+ * SUBMISSION ACKNOWLEDGEMENT
+ * ---------------------------------------------------------------------------
+ * Emails the student the moment their form response lands, so they know it
+ * arrived rather than wondering for a day.
+ *
+ * Deliberately NOT using the Google Forms "send responders a copy" setting:
+ * this form collects portal logins and passwords, and that setting would mail
+ * them straight back in plaintext. This writes its own message and never
+ * includes any answer that could be a credential.
+ *
+ * Run installFormSubmitTrigger() ONCE from the editor to switch it on.
+ * ======================================================================== */
+
+function onFormSubmit(e) {
+  try {
+    const sheet = tracker_().getSheetByName(RESPONSE_SHEET);
+    if (!sheet) return;
+
+    const rowNum = (e && e.range && e.range.getRow) ? e.range.getRow() : sheet.getLastRow();
+    if (rowNum < 2) return;
+
+    const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const map = resolveColumns_(header);
+    const row = sheet.getRange(rowNum, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+    const to = normalizeEmail_(cell_(row, map, 'email'));
+    if (!isEmailShaped_(to)) return;
+
+    const first = str_(row, map, 'name').split(/\s+/)[0] || 'there';
+    const kindOf = friendlyType_(requestTypeOf_(row, map));
+
+    MailApp.sendEmail({
+      to: to,
+      subject: 'We got your BRYC ' + kindOf,
+      body: 'Hi ' + first + ',\n\n'
+        + 'We have your ' + kindOf + ' — it is in the queue and your BRYC counselor or advisor '
+        + 'will review it shortly. You do not need to do anything else right now.\n'
+        + portalLinkLine_()
+        + '\nYou will hear from us again as it moves along.\n\nThe BRYC Team'
+    });
+  } catch (err) {
+    // Never let a failed acknowledgement interfere with the submission itself.
+    console.error('Submission acknowledgement failed: ' + err);
+  }
+}
+
+/**
+ * Run once from the editor. Creates the trigger that calls onFormSubmit when a
+ * response reaches the tracker. Safe to run again -- it won't add a duplicate.
+ */
+function installFormSubmitTrigger() {
+  const existing = ScriptApp.getProjectTriggers().filter(function (t) {
+    return t.getHandlerFunction() === 'onFormSubmit';
+  });
+  if (existing.length) {
+    console.log('Already installed — ' + existing.length + ' trigger(s) calling onFormSubmit. Nothing to do.');
+    return;
+  }
+  ScriptApp.newTrigger('onFormSubmit')
+    .forSpreadsheet(TRACKER_SHEET_ID)
+    .onFormSubmit()
+    .create();
+  console.log('Installed. Students will now get an acknowledgement the moment they submit.');
+}
+
+/** Undo the above, if the acknowledgement is ever not wanted. */
+function removeFormSubmitTrigger() {
+  let n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'onFormSubmit') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  console.log('Removed ' + n + ' trigger(s).');
 }
