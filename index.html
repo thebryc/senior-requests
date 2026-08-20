@@ -1767,6 +1767,18 @@ function sheetsUpdate(range, values){
   });
 }
 
+/**
+ * A1 notation with the sheet name properly quoted.
+ *
+ * Google REQUIRES single quotes around a sheet name containing a space --
+ * "Form Responses!A1:BZ" is rejected, "'Form Responses'!A1:BZ" works. Every tab
+ * this dashboard touches has a space in its name ("Form Responses",
+ * "Fee Payment Balance", "Grade 12"), so every range must go through here.
+ */
+function a1(sheet, range){
+  return "'" + String(sheet).replace(/'/g, "''") + "'!" + range;
+}
+
 /** 0-based column index -> A1 letters (handles AA, AB, ...). */
 function colLetter(i){
   let s = "", n = i;
@@ -1881,7 +1893,7 @@ function backfillFeeEmails(){
 
   const ensure = feeLayout.email > -1
     ? Promise.resolve()
-    : sheetsUpdate(FEE_BALANCE_SHEET + "!" + colLetter(feeLayout.width) + "1", [["Email"]]).then(function(){
+    : sheetsUpdate(a1(FEE_BALANCE_SHEET, colLetter(feeLayout.width) + "1"), [["Email"]]).then(function(){
         feeLayout.email = feeLayout.width;
         feeLayout.width += 1;
         feeRows.forEach(function(f){ f.email = ""; });
@@ -1904,7 +1916,7 @@ function backfillFeeEmails(){
       const e = byName[nameKey(f.name)];
       if(!e) return;
       f.email = e;
-      writes.push({ range: FEE_BALANCE_SHEET + "!" + colLetter(feeLayout.email) + f.sheetRow, values: [[e]] });
+      writes.push({ range: a1(FEE_BALANCE_SHEET, colLetter(feeLayout.email) + f.sheetRow), values: [[e]] });
     });
     if(!writes.length) return 0;
 
@@ -1935,7 +1947,7 @@ function logPayment(r, amount, description){
 
   const today = new Date();
   const dateStr = (today.getMonth() + 1) + "/" + today.getDate() + "/" + today.getFullYear();
-  const range = FEE_BALANCE_SHEET + "!" + colLetter(slot.type) + f.sheetRow + ":" + colLetter(slot.date) + f.sheetRow;
+  const range = a1(FEE_BALANCE_SHEET, colLetter(slot.type) + f.sheetRow + ":" + colLetter(slot.date) + f.sheetRow);
 
   return sheetsUpdate(range, [[description, amount, dateStr]]).then(function(){
     f.usedTriplets += 1;
@@ -2011,7 +2023,7 @@ function provisionRosterFunds(){
   });
 
   const url = "https://sheets.googleapis.com/v4/spreadsheets/" + SHEET_ID + "/values/"
-    + encodeURIComponent(FEE_BALANCE_SHEET + "!A:" + colLetter(width - 1))
+    + encodeURIComponent(a1(FEE_BALANCE_SHEET, "A:" + colLetter(width - 1)))
     + ":append?valueInputOption=USER_ENTERED";
   return fetch(url, {
     method: "POST",
@@ -2042,10 +2054,10 @@ function computeRosterOnly(){
 function loadData(){
   document.getElementById("list").innerHTML = `<div class="empty-state">Loading responses…</div>`;
   Promise.all([
-    sheetsGet(SHEET_NAME + "!A1:BZ"),
-    sheetsGet(FEE_BALANCE_SHEET + "!A1:BZ").catch(function(){ return []; }),
+    sheetsGet(a1(SHEET_NAME, "A1:BZ")),
+    sheetsGet(a1(FEE_BALANCE_SHEET, "A1:BZ")).catch(function(){ return []; }),
     // The attendance workbook doubles as the senior roster.
-    sheetsGetFrom(ATTENDANCE_SHEET_ID, ATTENDANCE_TAB + "!A1:BZ").catch(function(){ return []; })
+    sheetsGetFrom(ATTENDANCE_SHEET_ID, a1(ATTENDANCE_TAB, "A1:BZ")).catch(function(){ return []; })
   ]).then(function(results){
     return ensureTrackingColumns(results[0]).then(function(rows){
       colMap = rows.length ? resolveColumns(rows[0]) : {};
@@ -2096,7 +2108,7 @@ function ensureTrackingColumns(rows){
 
   const startIdx = header.length;
   const merged = header.concat(missing);
-  const range = SHEET_NAME + "!" + colLetter(startIdx) + "1:" + colLetter(merged.length - 1) + "1";
+  const range = a1(SHEET_NAME, colLetter(startIdx) + "1:" + colLetter(merged.length - 1) + "1");
   return sheetsUpdate(range, [missing]).then(function(){
     rows[0] = merged;
     return rows;
@@ -2126,7 +2138,7 @@ function trackingRange(sheetRow){
   const first = colMap["_Fulfilled"];
   const last = colMap["_MessagetoStudent"];
   if(first === undefined || last === undefined) return null;
-  return SHEET_NAME + "!" + colLetter(first) + sheetRow + ":" + colLetter(last) + sheetRow;
+  return a1(SHEET_NAME, colLetter(first) + sheetRow + ":" + colLetter(last) + sheetRow);
 }
 
 /* ===================== RENDER ===================== */

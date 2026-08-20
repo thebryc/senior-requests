@@ -974,3 +974,38 @@ function diagnoseAttendance() {
   console.log('If the count looks wrong, check that the header row is row '
     + ATTENDANCE_HEADER_ROW + ' and that name columns are "First Name" / "Last Name".');
 }
+
+
+/**
+ * Run from the editor if the counselor dashboard ever says it can't load data.
+ * The dashboard reads through the Sheets REST API using A1 ranges, which is a
+ * different path from the getSheetByName() calls above -- this checks whether
+ * the API accepts the range strings it builds. Every tab here has a space in
+ * its name, and A1 notation requires those to be single-quoted.
+ */
+function diagnoseSheetsApi() {
+  const token = ScriptApp.getOAuthToken();
+  const cases = [
+    ['UNQUOTED Form Responses',      'Form Responses!A1:B3'],
+    ['QUOTED   Form Responses',      "'Form Responses'!A1:B3"],
+    ['UNQUOTED Fee Payment Balance', 'Fee Payment Balance!A1:B3'],
+    ['QUOTED   Fee Payment Balance', "'Fee Payment Balance'!A1:B3"]
+  ];
+  cases.forEach(function (c) {
+    const url = 'https://sheets.googleapis.com/v4/spreadsheets/' + TRACKER_SHEET_ID
+      + '/values/' + encodeURIComponent(c[1]);
+    const res = UrlFetchApp.fetch(url, {
+      headers: { Authorization: 'Bearer ' + token },
+      muteHttpExceptions: true
+    });
+    const code = res.getResponseCode();
+    let note;
+    if (code === 200) {
+      note = 'OK, ' + ((JSON.parse(res.getContentText()).values || []).length) + ' rows';
+    } else {
+      try { note = JSON.parse(res.getContentText()).error.message; }
+      catch (e) { note = res.getContentText().slice(0, 90); }
+    }
+    console.log(code + '  ' + c[0] + '  ->  ' + note);
+  });
+}
