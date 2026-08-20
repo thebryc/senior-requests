@@ -470,6 +470,37 @@
     .msg-kind{margin-bottom:3px;}
   }
 #staff .save-note{font-size:11.5px;color:var(--muted);}
+  #staff .clog-item{border-bottom:1px solid var(--border);}
+  #staff .clog-item:last-child{border-bottom:0;}
+  #staff .clog-item > summary{cursor:pointer;list-style:none;border-bottom:0;}
+  #staff .clog-item > summary::-webkit-details-marker{display:none;}
+  #staff .clog-item > summary:hover{background:var(--ghost-teal);}
+  #staff .clog-item[open] > summary{background:var(--ghost-teal);}
+  #staff .comms-item > summary{cursor:pointer;list-style:none;}
+  #staff .comms-item > summary::-webkit-details-marker{display:none;}
+  #staff .clog-body{padding:12px 16px 16px;background:#fbfdfd;
+    border-top:1px solid var(--border);}
+  #staff .clog-to,#staff .clog-subjline{font-size:12px;color:var(--muted);margin-bottom:3px;}
+  #staff .clog-body pre{margin:8px 0 0;font-family:var(--font);font-size:13px;
+    line-height:1.55;color:var(--ink);white-space:pre-wrap;word-break:break-word;}
+  #staff .clog{display:flex;flex-direction:column;background:#fff;
+    border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+  #staff .clog-row{display:grid;grid-template-columns:150px 160px 130px 1fr 170px;
+    gap:12px;align-items:baseline;padding:9px 14px;font-size:12.5px;
+    border-bottom:1px solid var(--border);}
+  #staff .clog-row:last-child{border-bottom:0;}
+  #staff .clog-head{font-size:11px;font-weight:700;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--muted);background:var(--ghost-teal);}
+  #staff .clog-when{color:var(--muted);white-space:nowrap;}
+  #staff .clog-who{font-weight:600;color:var(--ink);}
+  #staff .clog-kind{color:var(--dark-teal);font-weight:600;}
+  #staff .clog-subj{color:var(--ink);}
+  #staff .clog-by{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  @media (max-width:900px){
+    #staff .clog-row{grid-template-columns:1fr 1fr;gap:4px 12px;}
+    #staff .clog-head{display:none;}
+    #staff .clog-subj{grid-column:1/-1;}
+  }
   #staff .comms{margin-top:14px;border-top:1px solid var(--border);padding-top:12px;}
   #staff .comms-head{font-size:11px;font-weight:700;letter-spacing:.06em;
     text-transform:uppercase;color:var(--muted);margin-bottom:8px;}
@@ -579,6 +610,7 @@
     <div class="view-switch">
       <button id="view-queue" class="active">Queue</button>
       <button id="view-all">All requests</button>
+      <button id="view-comms">Comms</button>
     </div>
     <input class="search-input" id="search-input" type="text" placeholder="Search by name…" />
     <label class="toggle-row" style="margin-left:0;"><input type="checkbox" id="email-students" checked /> Email students on changes</label>
@@ -2262,7 +2294,7 @@ function loadData(){
     // The attendance workbook doubles as the senior roster.
     sheetsGetFrom(ATTENDANCE_SHEET_ID, a1(ATTENDANCE_TAB, "A1:BZ")).catch(function(){ return []; }),
     // Created by the backend on its first send, so "missing" is normal at first.
-    sheetsGet(a1(COMMS_SHEET, "A1:H")).catch(function(){ return []; })
+    sheetsGet(a1(COMMS_SHEET, "A1:I")).catch(function(){ return []; })
   ]).then(function(results){
     return ensureTrackingColumns(results[0]).then(function(rows){
       colMap = rows.length ? resolveColumns(rows[0]) : {};
@@ -2356,6 +2388,61 @@ function trackingRange(sheetRow){
 }
 
 /* ===================== RENDER ===================== */
+/* Every email BRYC has sent, newest first, honouring the search box and the
+ * "only mine" toggle. This is the audit view -- the per-request history inside
+ * Details answers "what has this student been told", this one answers
+ * "what has BRYC sent lately". */
+function renderComms(){
+  const container = document.getElementById("list");
+  const note = document.getElementById("count-note");
+  container.className = "list";
+
+  const q = String(searchTerm || "").trim().toLowerCase();
+  let list = commsRows.slice();
+  if(q){
+    list = list.filter(function(c){
+      return (c.student || "").toLowerCase().indexOf(q) !== -1
+          || (c.email   || "").toLowerCase().indexOf(q) !== -1
+          || (c.subject || "").toLowerCase().indexOf(q) !== -1;
+    });
+  }
+  if(mineOnly && userEmail){
+    const me = String(userEmail).toLowerCase();
+    list = list.filter(function(c){ return String(c.by || "").toLowerCase() === me; });
+  }
+
+  note.textContent = list.length + " email" + (list.length === 1 ? "" : "s");
+
+  if(!commsRows.length){
+    container.innerHTML = '<div class="empty-state">No emails logged yet. '
+      + "Once BRYC emails a student, every message shows up here with the date and who sent it.</div>";
+    return;
+  }
+  if(!list.length){
+    container.innerHTML = '<div class="empty-state">No emails match this view.</div>';
+    return;
+  }
+
+  container.innerHTML = '<div class="clog">'
+    + '<div class="clog-row clog-head">'
+    +   "<span>When</span><span>Student</span><span>Notification</span>"
+    +   "<span>Subject</span><span>Sent by</span></div>"
+    + list.map(function(c){
+        const row = '<span class="clog-when">' + escapeHtml(c.when) + "</span>"
+          + '<span class="clog-who">' + escapeHtml(c.student || c.email) + "</span>"
+          + '<span class="clog-kind">' + escapeHtml(c.kind || "Email") + "</span>"
+          + '<span class="clog-subj">' + escapeHtml(c.subject) + "</span>"
+          + '<span class="clog-by">' + escapeHtml(c.by || "Automatic") + "</span>";
+        // No body on rows logged before the Message column existed.
+        if(!c.body) return '<div class="clog-row">' + row + "</div>";
+        return '<details class="clog-item"><summary class="clog-row">' + row + "</summary>"
+          + '<div class="clog-body"><div class="clog-to">To: ' + escapeHtml(c.email) + "</div>"
+          + '<div class="clog-subjline">Subject: ' + escapeHtml(c.subject) + "</div>"
+          + "<pre>" + escapeHtml(c.body) + "</pre></div></details>";
+      }).join("")
+    + "</div>";
+}
+
 function renderFilterTabs(){
   const el = document.getElementById("filter-tabs");
   el.innerHTML = FILTERS.map(function(f){
@@ -2452,6 +2539,7 @@ function renderSummary(){
 
 function render(){
   renderSummary();
+  if(viewMode === "comms"){ renderComms(); return; }
   const list = visibleList();
   document.getElementById("count-note").textContent = list.length + " request" + (list.length === 1 ? "" : "s");
 
@@ -2594,12 +2682,13 @@ function parseComms(rows){
   const at = function(name){ return head.indexOf(name); };
   const iWhen = at("when"), iWho = at("student"), iMail = at("email"),
         iType = at("request type"), iKind = at("notification"),
-        iSubj = at("subject"), iBy = at("sent by");
+        iSubj = at("subject"), iBy = at("sent by"), iBody = at("message");
   const get = function(row, i){ return i > -1 ? String(row[i] || "").trim() : ""; };
   return rows.slice(1).map(function(row){
     return { when: get(row, iWhen), student: get(row, iWho),
              email: get(row, iMail).toLowerCase(), type: get(row, iType),
-             kind: get(row, iKind), subject: get(row, iSubj), by: get(row, iBy) };
+             kind: get(row, iKind), subject: get(row, iSubj), by: get(row, iBy),
+             body: get(row, iBody) };
   }).filter(function(c){ return c.email || c.student; }).reverse();  // newest first
 }
 
@@ -2618,12 +2707,13 @@ function commsHtml(r){
   }
   return '<div class="comms"><div class="comms-head">Emails sent &mdash; ' + list.length + '</div>'
     + list.map(function(c){
-        return '<div class="comms-row">'
-          + '<span class="comms-when">' + escapeHtml(c.when) + "</span>"
+        const row = '<span class="comms-when">' + escapeHtml(c.when) + "</span>"
           + '<span class="comms-kind">' + escapeHtml(c.kind || "Email") + "</span>"
           + '<span class="comms-subj">' + escapeHtml(c.subject) + "</span>"
-          + '<span class="comms-by">' + escapeHtml(c.by || "Automatic") + "</span>"
-          + "</div>";
+          + '<span class="comms-by">' + escapeHtml(c.by || "Automatic") + "</span>";
+        if(!c.body) return '<div class="comms-row">' + row + "</div>";
+        return '<details class="comms-item"><summary class="comms-row">' + row + "</summary>"
+          + '<div class="clog-body"><pre>' + escapeHtml(c.body) + "</pre></div></details>";
       }).join("")
     + "</div>";
 }
@@ -2993,10 +3083,12 @@ window.__staffBoot = function(){
     openRowIndex = null;
     document.getElementById("view-queue").classList.toggle("active", mode === "queue");
     document.getElementById("view-all").classList.toggle("active", mode === "all");
+    document.getElementById("view-comms").classList.toggle("active", mode === "comms");
     render();
   };
   document.getElementById("view-queue").addEventListener("click", function(){ setView("queue"); });
   document.getElementById("view-all").addEventListener("click", function(){ setView("all"); });
+  document.getElementById("view-comms").addEventListener("click", function(){ setView("comms"); });
 };
 })();
 </script>

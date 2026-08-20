@@ -828,7 +828,7 @@ function removeNotificationSweep() {
  * ------------------------------------------------------------------------ */
 const COMMS_SHEET = 'Comms Log';
 const COMMS_HEADERS = ['When', 'Student', 'Email', 'Request Type', 'Notification',
-                       'Subject', 'Sent By'];
+                       'Subject', 'Sent By', 'Message'];
 
 function commsSheet_() {
   const ss = tracker_();
@@ -838,6 +838,13 @@ function commsSheet_() {
     sheet.appendRow(COMMS_HEADERS);
     sheet.setFrozenRows(1);
     sheet.getRange(1, 1, 1, COMMS_HEADERS.length).setFontWeight('bold');
+    return sheet;
+  }
+  // A log created by an earlier version may be missing newer columns. Widen the
+  // header row rather than silently appending values nothing knows how to read.
+  const width = sheet.getLastColumn();
+  if (width < COMMS_HEADERS.length) {
+    sheet.getRange(1, 1, 1, COMMS_HEADERS.length).setValues([COMMS_HEADERS]).setFontWeight('bold');
   }
   return sheet;
 }
@@ -858,7 +865,8 @@ function logComm_(row, map, kind, msg, sentBy) {
     friendlyType_(requestTypeOf_(row, map)),
     COMMS_LABELS[kind] || kind,
     msg.subject,
-    sentBy || 'Automatic'
+    sentBy || 'Automatic',
+    msg.body                 // exactly what the student received, word for word
   ]);
 }
 
