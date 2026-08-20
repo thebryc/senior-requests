@@ -562,8 +562,23 @@ function handleNotifyStudent(e) {
   const map = resolveColumns_(rows[0]);
   const row = rows[sheetRow - 1];
 
+  const res = sendNotification_(row, map, kind, admin);
+  // Record what went out so the background sweep does not repeat it.
+  if (res.status === 'ok') {
+    try { markNotified_(sheet, rows[0], sheetRow, notificationSignature_(row, map)); }
+    catch (err) { console.error('Could not record Notified: ' + err); }
+  }
+  return res;
+}
+
+/**
+ * Builds the email for one row. Shared by the dashboard's immediate send and by
+ * the background sweep, so both always word things identically.
+ * Returns {to, subject, body}, or {error} when this row/kind sends nothing.
+ */
+function composeNotification_(row, map, kind) {
   const to = normalizeEmail_(cell_(row, map, 'email'));
-  if (!isEmailShaped_(to)) return { status: 'error', message: 'That row has no usable student email.' };
+  if (!isEmailShaped_(to)) return { error: 'That row has no usable student email.' };
 
   const first = str_(row, map, 'name').split(/\s+/)[0] || 'there';
   const kindOf = friendlyType_(requestTypeOf_(row, map));
@@ -581,7 +596,7 @@ function handleNotifyStudent(e) {
 
   } else if (kind === 'message') {
     const message = String(cell_(row, map, '_MessagetoStudent') || '').trim();
-    if (!message) return { status: 'error', message: 'There is no message on that row to send.' };
+    if (!message) return { error: 'There is no message on that row to send.' };
     subject = 'An update on your BRYC ' + kindOf;
     body = 'Hi ' + first + ',\n\n'
       + 'Your BRYC counselor left you a note about your ' + kindOf + ':\n\n'
@@ -601,7 +616,7 @@ function handleNotifyStudent(e) {
                      : 'Your ' + kindOf + ' has been approved and is being arranged now.'
     };
     if (!lines[stage]) {
-      return { status: 'error', message: 'No update email is sent for the stage "' + stage + '".' };
+      return { error: 'No update email is sent for the stage "' + stage + '".' };
     }
     subject = 'Update on your BRYC ' + kindOf + ': ' + stage;
     body = 'Hi ' + first + ',\n\n'
@@ -610,17 +625,177 @@ function handleNotifyStudent(e) {
       + '\nNo action is needed from you unless your counselor asks.\n\nThe BRYC Team';
 
   } else {
-    return { status: 'error', message: 'Unknown notification type.' };
+    return { error: 'Unknown notification type.' };
   }
 
+  return { to: to, subject: subject, body: body };
+}
+
+function sendNotification_(row, map, kind, sentBy) {
+  const msg = composeNotification_(row, map, kind);
+  if (msg.error) return { status: 'error', message: msg.error };
   try {
-    MailApp.sendEmail({ to: to, name: SENDER_NAME, subject: subject, body: body });
+    MailApp.sendEmail({ to: msg.to, name: SENDER_NAME, subject: msg.subject, body: msg.body });
   } catch (err) {
     console.error('Student notification failed: ' + err);
     return { status: 'error', message: 'The email could not be sent.' };
   }
+  // Every outbound message is logged, so there is always a record of what BRYC
+  // told a student and when. Logging must never break the send itself.
+  try { logComm_(row, map, kind, msg, sentBy); }
+  catch (err) { console.error('Comms log write failed: ' + err); }
+  return { status: 'ok', sentTo: msg.to };
+}
 
-  return { status: 'ok', sentTo: to };
+/* ---------------------------------------------------------------------------
+ * BACKGROUND NOTIFICATION SWEEP
+ * ---------------------------------------------------------------------------
+ * Why this exists: emails used to be sent by the counselor's browser, using the
+ * Google token from their sign-in. That token expires after about an hour, the
+ * dashboard has to stay open, and nothing at all was sent when somebody edited
+ * the tracker sheet by hand -- which is how a lot of updates actually happen.
+ *
+ * Instead a timer compares each row's current Stage / Message / Fulfilled to a
+ * "Notified" column holding whatever was last emailed. Anything that differs
+ * gets the right email and the column is updated. Change a stage anywhere --
+ * dashboard or straight in the sheet -- and the student hears about it.
+ *
+ * Rows seen for the first time are recorded WITHOUT sending, so switching this
+ * on cannot blast the whole back catalogue at everybody.
+ * ------------------------------------------------------------------------ */
+const NOTIFIED_HEADER = 'Notified';
+
+/** What the student has been told, as one comparable string. */
+function notificationSignature_(row, map) {
+  const fulfilled = String(cell_(row, map, '_Fulfilled') || '').toUpperCase() === 'TRUE';
+  const stage = String(cell_(row, map, '_Stage') || '').trim();
+  const message = String(cell_(row, map, '_MessagetoStudent') || '').trim();
+  return (fulfilled ? 'FULFILLED' : (stage || 'Received')) + '||' + message;
+}
+
+/** Which single email a change deserves, or null for one not worth sending. */
+function kindForChange_(prev, next) {
+  const p = String(prev).split('||');
+  const n = String(next).split('||');
+  const pState = p[0] || '', nState = n[0] || '';
+  const pMsg = p.slice(1).join('||'), nMsg = n.slice(1).join('||');
+  // Completion supersedes a stage bump, and a counselor's note supersedes a
+  // bare stage change, so one save never produces two emails.
+  if (nState === 'FULFILLED' && pState !== 'FULFILLED') return 'fulfilled';
+  if (nMsg && nMsg !== pMsg) return 'message';
+  if (nState !== pState && nState !== 'FULFILLED') return 'stage';
+  return null;
+}
+
+function ensureNotifiedColumn_(sheet, headers) {
+  for (let i = 0; i < headers.length; i++) {
+    if (String(headers[i]).trim().toLowerCase() === NOTIFIED_HEADER.toLowerCase()) return i;
+  }
+  sheet.getRange(1, headers.length + 1).setValue(NOTIFIED_HEADER);
+  return headers.length;
+}
+
+function markNotified_(sheet, headers, sheetRow, signature) {
+  const col = ensureNotifiedColumn_(sheet, headers) + 1;
+  sheet.getRange(sheetRow, col).setValue(signature);
+}
+
+/** Runs on a timer. Safe to run by hand from the editor too. */
+function sweepNotifications() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return;   // a slow sweep must never overlap itself
+  try {
+    const sheet = tracker_().getSheetByName(RESPONSE_SHEET);
+    if (!sheet) { console.log('No "' + RESPONSE_SHEET + '" tab.'); return; }
+
+    const rows = sheet.getDataRange().getValues();
+    if (rows.length < 2) return;
+
+    const headers = rows[0];
+    const map = resolveColumns_(headers);
+    const nCol = ensureNotifiedColumn_(sheet, headers);
+
+    let sent = 0, seeded = 0, skipped = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!isEmailShaped_(normalizeEmail_(cell_(row, map, 'email')))) continue;
+
+      const sig = notificationSignature_(row, map);
+      const cur = row[nCol];
+      const prev = String(cur === undefined || cur === null ? '' : cur).trim();
+      if (prev === sig) continue;
+
+      if (!prev) {
+        // First time this row is seen: remember where it stands, stay quiet.
+        sheet.getRange(i + 1, nCol + 1).setValue(sig);
+        seeded++;
+        continue;
+      }
+
+      const kind = kindForChange_(prev, sig);
+      if (kind) {
+        const res = sendNotification_(row, map, kind, 'Automatic');
+        if (res.status === 'ok') sent++;
+        else { skipped++; console.log('Row ' + (i + 1) + ': ' + (res.message || res.status)); }
+      }
+      sheet.getRange(i + 1, nCol + 1).setValue(sig);
+    }
+    console.log('Sweep done -- ' + sent + ' emailed, ' + seeded + ' newly tracked, ' + skipped + ' skipped.');
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Run once from the editor to turn automatic sending on. */
+function installNotificationSweep() {
+  removeNotificationSweep();
+  ScriptApp.newTrigger('sweepNotifications').timeBased().everyMinutes(5).create();
+  console.log('Automatic student emails are ON (every 5 minutes).');
+}
+
+function removeNotificationSweep() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sweepNotifications') ScriptApp.deleteTrigger(t);
+  });
+}
+
+/* ---------------------------------------------------------------------------
+ * COMMS LOG -- an append-only record of every email BRYC sends a student.
+ * ------------------------------------------------------------------------ */
+const COMMS_SHEET = 'Comms Log';
+const COMMS_HEADERS = ['When', 'Student', 'Email', 'Request Type', 'Notification',
+                       'Subject', 'Sent By'];
+
+function commsSheet_() {
+  const ss = tracker_();
+  let sheet = ss.getSheetByName(COMMS_SHEET);
+  if (!sheet) {
+    sheet = ss.insertSheet(COMMS_SHEET);
+    sheet.appendRow(COMMS_HEADERS);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, COMMS_HEADERS.length).setFontWeight('bold');
+  }
+  return sheet;
+}
+
+const COMMS_LABELS = {
+  fulfilled: 'Request complete',
+  message:   'Counselor note',
+  stage:     'Stage update',
+  received:  'Request received'
+};
+
+function logComm_(row, map, kind, msg, sentBy) {
+  const sheet = commsSheet_();
+  sheet.appendRow([
+    new Date(),
+    str_(row, map, 'name'),
+    msg.to,
+    friendlyType_(requestTypeOf_(row, map)),
+    COMMS_LABELS[kind] || kind,
+    msg.subject,
+    sentBy || 'Automatic'
+  ]);
 }
 
 function portalSecret_() {

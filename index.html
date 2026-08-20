@@ -696,7 +696,7 @@ function jsonpOnce(params){
     script.onerror = function(){
       if(done) return;
       done = true; clearTimeout(timer); cleanup();
-      reject(new Error("The BRYC server is busy right now. Wait a minute and try signing in again \u2014 your code is still good for 10 minutes."));
+      reject(new Error("We couldn't reach the BRYC server. If you are on school WiFi, turn WiFi off and use your phone's data instead \u2014 many school networks block this. Otherwise wait a minute and try again.")); 
     };
     document.body.appendChild(script);
   });
@@ -2814,9 +2814,15 @@ function saveRow(sheetRowStr, opts){
       else if(stageChanged)                              pending = notifyStudent(sheetRow, "stage");
       if(pending){
         pending.then(function(res){
-          if(res && res.status === "ok") showToast("Student emailed.");
-          else if(res && res.status) showToast("Saved, but the student email didn't send: " + (res.message || res.status));
-        }).catch(function(){ /* already saved; a failed email isn't worth an alarm */ });
+          // A null here means the send never got a reply -- expired sign-in,
+          // blocked network, timeout. That used to fall through both branches
+          // and say nothing at all, so a counselor had no idea. BRYC's
+          // background sweep picks these up within 5 minutes either way.
+          if(res && res.status === "ok")            showToast("Student emailed.");
+          else if(res && res.status === "forbidden") showToast("Saved. Your sign-in has expired, so BRYC will send the email within 5 minutes.");
+          else if(res && res.status)                showToast("Saved. " + (res.message || "Email not sent yet") + " \u2014 BRYC will retry within 5 minutes.");
+          else                                      showToast("Saved. The student will be emailed within 5 minutes.");
+        }).catch(function(){ showToast("Saved. The student will be emailed within 5 minutes."); });
       }
     })
     .catch(function(err){
