@@ -79,6 +79,12 @@
 
   /* ---------- embedded request form ---------- */
   .form-frame{width:100%;height:1500px;border:0;display:block;background:#fff;}
+  .form-heads-up{
+    display:flex;gap:11px;align-items:flex-start;
+    background:var(--ghost-teal);border-bottom:1px solid var(--border);
+    padding:14px 20px;font-size:13.5px;line-height:1.6;color:var(--dark-teal);
+  }
+  .form-heads-up .hu-ico{font-size:15px;line-height:1.4;}
   .form-note{
     font-size:12.5px;color:var(--muted);line-height:1.6;
     padding:14px 20px;border-top:1px solid var(--border);background:var(--page-bg);
@@ -322,6 +328,14 @@
   .newreq:hover{background:var(--teal);color:#fff;}
   .panel-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
   .panel-head .panel-title{margin-bottom:0;}
+
+  .no-code{
+    margin-top:18px;padding-top:16px;border-top:1px solid var(--border);
+    font-size:13px;color:var(--muted);line-height:1.6;
+  }
+  .no-code ul{margin:8px 0 0;padding-left:20px;}
+  .no-code li{margin-bottom:5px;}
+  .btn-link.inline{font-size:13px;padding:0;}
 
   .center-msg{text-align:center;padding:34px 10px;}
   .center-msg .ico{font-size:32px;margin-bottom:12px;}
@@ -630,13 +644,23 @@ let warnTimer = null;
  * unavailable while it redeploys -- and a student shouldn't be dead-ended by a
  * hiccup they can't do anything about.
  */
+/* The web app runs as a single Google account, so when several people sign in
+ * at once Apps Script can shed a request and answer with an error page instead
+ * of our JSON. That is transient, so back off and try again a couple of times
+ * before showing the student an error. */
 function jsonpFetch(params){
-  return jsonpOnce(params).catch(function(err){
-    return new Promise(function(resolve, reject){
-      setTimeout(function(){
-        jsonpOnce(params).then(resolve).catch(function(){ reject(err); });
-      }, 1500);
-    });
+  const delays = [1200, 3500, 7000];
+  const deadline = Date.now() + 40000;   // never leave someone on a spinner longer
+  return new Promise(function(resolve, reject){
+    let attempt = 0;
+    const run = function(){
+      jsonpOnce(params).then(resolve).catch(function(err){
+        const wait = delays[attempt++];
+        if(wait === undefined || Date.now() + wait > deadline){ reject(err); return; }
+        setTimeout(run, wait);
+      });
+    };
+    run();
   });
 }
 
@@ -672,7 +696,7 @@ function jsonpOnce(params){
     script.onerror = function(){
       if(done) return;
       done = true; clearTimeout(timer); cleanup();
-      reject(new Error("We couldn't reach the BRYC server. Check your connection and try again in a moment."));
+      reject(new Error("The BRYC server is busy right now. Wait a minute and try signing in again \u2014 your code is still good for 10 minutes."));
     };
     document.body.appendChild(script);
   });
@@ -908,6 +932,11 @@ function requestHtml(){
     +   '<span class="tag">Class of 2027</span>'
     +   "<h1>Request BRYC support</h1>"
     + "</div>"
+    + '<div class="form-heads-up"><span class="hu-ico">&#9993;</span><span>'
+    +   "<b>Use an email you actually check.</b> Whatever address you put on this form is the one "
+    +   "you'll use to sign in and track your request &mdash; and it's where we'll send updates. "
+    +   "A typo means you won't be able to see your status later."
+    + "</span></div>"
     + '<iframe class="form-frame" src="' + REQUEST_FORM_URL + '?embedded=true" '
     +   'title="Class of 2027: Request for BRYC Support" loading="lazy">Loading the form&hellip;</iframe>'
     + '<div class="form-note">Form not loading, or want it in its own window? '
@@ -1011,6 +1040,14 @@ function pinHtml(){
     +     '<button class="btn-link" id="btn-resend">Send a new code</button>'
     +     '<button class="btn-link" id="btn-change-email">Use a different email</button>'
     +   "</div>"
+    +   '<div class="no-code"><b>No code after a minute or two?</b> Usually one of these:'
+    +     "<ul>"
+    +     "<li>It's in your <b>spam or promotions</b> folder.</li>"
+    +     "<li>You typed a <b>different address</b> than the one on your request form &mdash; "
+    +       'try <button class="btn-link inline" id="btn-change-email-2">another email</button>.</li>'
+    +     "<li>You haven't submitted a request yet &mdash; there's nothing to look up until you do.</li>"
+    +     "<li>Still stuck? Ask your BRYC counselor or advisor which email is on your form.</li>"
+    +     "</ul></div>"
     + "</div></div>"
     + footnoteHtml();
 }
@@ -1177,6 +1214,16 @@ function trailHtml(r){
   }).join("") + "</div>";
 }
 
+/* Safe answers arrive as a details[] list of {label, value}, not as top-level
+ * keys, so copy that varies by what a student chose has to look them up. */
+function detailValue(r, label){
+  const d = (r && r.details) || [];
+  for(let i = 0; i < d.length; i++){
+    if(d[i] && d[i].label === label) return String(d[i].value || "");
+  }
+  return "";
+}
+
 function nextStepFor(r){
   const t = String(r.type || "");
   if(t.indexOf("senior funds") > -1){
@@ -1184,10 +1231,23 @@ function nextStepFor(r){
       ? "You will never be given a check or cash \u2014 once BRYC approves this we pay the school, testing agency or provider directly, and it comes out of your senior funds. Make sure any login you gave us still works."
       : "Your counselor will process your fee waiver through your partner school. Watch your email in case they need anything else from you.";
   }
-  if(t.indexOf("writing coach") > -1) return "Rachel will email you to set up a time. Have your draft shared and ready before your session.";
+  if(t.indexOf("writing coach") > -1){
+    // The form offers written feedback OR a live meeting. Telling someone who
+    // asked for written notes to "be ready for your session" is just wrong, so
+    // read back what they actually picked.
+    const support = detailValue(r, "Support needed");
+    if(/asynchronous|written feedback/i.test(support)){
+      return "Your Writing Coach will read your writing and send you written feedback by email. "
+           + "Make sure the link you shared stays viewable to them \u2014 you don't need to schedule anything.";
+    }
+    if(/one-on-one|meeting/i.test(support)){
+      return "Your Writing Coach will email you to set up a time. Have your draft shared and ready before your meeting.";
+    }
+    return "Your Writing Coach will follow up with you by email about your writing.";
+  }
   if(t.indexOf("College Aid Pro") > -1) return "Your setup instructions were emailed to you as soon as you submitted this. Follow the link in that email to create your free premium account.";
-  if(t.indexOf("UWorld") > -1) return "Aareena will email your UWorld account details once your account is set up.";
-  if(t.indexOf("MasteryPrep") > -1) return "Aareena will email your MasteryPrep login once it's set up.";
+  if(t.indexOf("UWorld") > -1) return "Ms. Aareena will email your UWorld account details once your account is set up.";
+  if(t.indexOf("MasteryPrep") > -1) return "Ms. Aareena will email your MasteryPrep login once it's set up.";
   return "Your BRYC counselor or advisor will follow up with you by email.";
 }
 
@@ -1393,6 +1453,11 @@ function wireUp(){
 
   const resendBtn = document.getElementById("btn-resend");
   if(resendBtn) resendBtn.addEventListener("click", requestPin);
+
+  const changeBtn2 = document.getElementById("btn-change-email-2");
+  if(changeBtn2) changeBtn2.addEventListener("click", function(){
+    view = "email"; pinValue = ""; errorMsg = ""; noticeMsg = ""; render();
+  });
 
   const changeBtn = document.getElementById("btn-change-email");
   if(changeBtn) changeBtn.addEventListener("click", function(){

@@ -51,6 +51,10 @@ const FEE_BALANCE_SHEET = 'Fee Payment Balance';
 // "check your portal" link from student emails.
 const PORTAL_URL = 'https://thebryc.org/request';
 
+// Display name students see in the "From" line. Mail still sends from whoever
+// owns this script; this only changes the name shown next to the address.
+const SENDER_NAME = 'Ms. Jakia';
+
 // Counselors allowed to use bryc-admin.html and to trigger a student email.
 // Keep in sync with ALLOWED_ADMIN_EMAILS there. Addresses follow BRYC's
 // firstname@thebryc.org pattern -- correct any that differ.
@@ -92,8 +96,12 @@ const ATTENDANCE_SHEET_ID = '13j0yKuyPdOx_zdQgzyegD0yiAiuu3BQEVtKEWlJ20yU';
 const ATTENDANCE_TAB = 'Grade 12';       // seniors; other grades have their own tabs
 const ATTENDANCE_HEADER_ROW = 5;         // 1-based
 const ATTENDANCE_MIN_PERCENT = 80;       // BRYC's 80% requirement
-const ATTENDANCE_CACHE_SECONDS = 60;     // effectively live; just stops one sign-in
-                                         // re-reading a 477-row sheet several times
+// The student portal caches the attendance index this long. It is deliberately
+// NOT tiny: rebuilding it opens an external 477-row workbook, and doing that on
+// every sign-in pushed the portal request past its execution limit, which the
+// browser sees as "we couldn't reach the BRYC server". Counselors who need
+// live figures use the dashboard, which never caches and has a Refresh button.
+const ATTENDANCE_CACHE_SECONDS = 900;
 
 /* ---- Sign-in security ---- */
 const PIN_TTL_SECONDS = 600;             // one-time PIN lifetime: 10 minutes
@@ -606,7 +614,7 @@ function handleNotifyStudent(e) {
   }
 
   try {
-    MailApp.sendEmail({ to: to, subject: subject, body: body });
+    MailApp.sendEmail({ to: to, name: SENDER_NAME, subject: subject, body: body });
   } catch (err) {
     console.error('Student notification failed: ' + err);
     return { status: 'error', message: 'The email could not be sent.' };
@@ -712,6 +720,7 @@ function handleRequestPin(rawEmail) {
   try {
     MailApp.sendEmail({
       to: email,
+      name: SENDER_NAME,
       subject: 'Your BRYC sign-in code: ' + pin,
       body:
         'Your one-time BRYC Senior Portal sign-in code is:\n\n' +
@@ -863,7 +872,13 @@ function attendanceIndex_() {
     return null;
   }
 
-  const rows = sheet.getDataRange().getValues();
+  // Bounded read rather than getDataRange(): that tab carries many weeks of
+  // columns and a lot of formatting, and pulling all of it is the slowest thing
+  // the portal does. Everything needed sits within the first 30 columns.
+  const lastRow = sheet.getLastRow();
+  const lastCol = Math.min(sheet.getLastColumn(), 30);
+  if (lastRow < ATTENDANCE_HEADER_ROW || lastCol < 1) return null;
+  const rows = sheet.getRange(1, 1, lastRow, lastCol).getValues();
   if (rows.length < ATTENDANCE_HEADER_ROW) return null;
 
   const headers = rows[ATTENDANCE_HEADER_ROW - 1].map(function (h) { return String(h).trim(); });
@@ -950,8 +965,16 @@ function matchAttendanceName_(index, fellowName) {
 /** The attendance object handed to the portal, or null if nothing is known. */
 function attendanceFor_(fellowName) {
   let rec = null;
+  const started = new Date().getTime();
   try { rec = matchAttendanceName_(attendanceIndex_(), fellowName); }
   catch (err) { console.error('Attendance lookup failed: ' + err); }
+  // Attendance is a nice-to-have on the portal; funds and request status are
+  // not. If the workbook is slow today, show "not recorded yet" rather than
+  // letting the whole sign-in fail.
+  if (new Date().getTime() - started > 15000) {
+    console.error('Attendance lookup took too long; skipping it for this request.');
+    return null;
+  }
   if (!rec || rec.sessionsRecorded === 0 || rec.percent === null) return null;
 
   const percent = Math.round(rec.percent * 10) / 10;
@@ -1066,6 +1089,7 @@ function onFormSubmit(e) {
 
     MailApp.sendEmail({
       to: to,
+      name: SENDER_NAME,
       subject: 'We got your BRYC ' + kindOf,
       body: 'Hi ' + first + ',\n\n'
         + 'We have your ' + kindOf + ' — it is in the queue and your BRYC counselor or advisor '
