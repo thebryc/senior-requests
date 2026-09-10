@@ -1016,8 +1016,15 @@ function requestHtml(){
     + "</span></div>"
     + '<iframe class="form-frame" src="' + REQUEST_FORM_URL + '?embedded=true" '
     +   'title="Class of 2027: Request for BRYC Support" loading="lazy">Loading the form&hellip;</iframe>'
-    + '<div class="form-note">Form not loading, or want it in its own window? '
-    +   '<a href="' + REQUEST_FORM_URL + '" target="_blank" rel="noopener noreferrer">Open it directly</a>. '
+    // The embedded form can show a Google sign-in wall for people signed into
+    // several Google accounts at once -- the iframe gets routed to an account
+    // index that cannot resolve the form. Opening it in its own window fixes it,
+    // so name that symptom explicitly rather than leaving them stuck.
+    + '<div class="form-note">'
+    +   '<b>Seeing "Sign in to your Google Account"?</b> That happens when you are '
+    +   'signed into more than one Google account. '
+    +   '<a href="' + REQUEST_FORM_URL + '" target="_blank" rel="noopener noreferrer">Open the form in its own window</a> '
+    +   "instead \u2014 you do not need a Google account to fill it in.<br/>"
     +   "After you submit, come back to <b>My funds &amp; requests</b> to track it."
     + "</div>"
     + "</div>"
@@ -1335,6 +1342,13 @@ function nextStepFor(r){
     return r.isPayment
       ? "You will never be given a check or cash \u2014 once BRYC approves this we pay the school, testing agency or provider directly, and it comes out of your senior funds. Make sure any login you gave us still works."
       : "Your counselor will process your fee waiver through your partner school. Watch your email in case they need anything else from you.";
+  }
+  // Advisees can request these too now, not just Fellows. Without this branch
+  // they fell through to the generic "someone will follow up" line, which is
+  // the least useful thing on the page.
+  if(t.indexOf("fee waiver for a BRYC partner school") > -1){
+    return "Your BRYC counselor or advisor will request the fee waiver from that partner school for you. "
+         + "Watch your email in case they need anything else \u2014 you should not pay the application fee yourself.";
   }
   if(t.indexOf("writing coach") > -1){
     // The form offers written feedback OR a live meeting. Telling someone who
@@ -3025,7 +3039,7 @@ function saveRow(sheetRowStr, opts){
           // and say nothing at all, so a counselor had no idea. BRYC's
           // background sweep picks these up within 5 minutes either way.
           if(res && res.status === "ok")            showToast("Student emailed.");
-          else if(res && res.status === "forbidden") showToast("Saved. Your sign-in has expired, so BRYC will send the email within 5 minutes.");
+          else if(res && res.status === "forbidden") showToast("Saved. " + (res.message || "Your sign-in has expired.") + " BRYC will send the email within 5 minutes.");
           else if(res && res.status)                showToast("Saved. " + (res.message || "Email not sent yet") + " \u2014 BRYC will retry within 5 minutes.");
           else                                      showToast("Saved. The student will be emailed within 5 minutes.");
         }).catch(function(){ showToast("Saved. The student will be emailed within 5 minutes."); });
