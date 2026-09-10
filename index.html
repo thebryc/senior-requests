@@ -1682,7 +1682,9 @@ const STALE_DAYS = 7;
 // ids as the Apps Script -- keep them in step.
 const ATTENDANCE_SHEET_ID = "13j0yKuyPdOx_zdQgzyegD0yiAiuu3BQEVtKEWlJ20yU";
 const ATTENDANCE_TAB = "Grade 12";
-const ATTENDANCE_HEADER_ROW = 5;   // 1-based; data starts on row 6
+// The header row is DETECTED, not assumed -- it has already moved once
+// (row 5 -> row 6 in Fall 2026). This is only how far down to look.
+const ATTENDANCE_HEADER_SCAN_ROWS = 15;
 
 // Exact option strings the PY27 form writes.
 const ROLE_ADVISEE = "I am an Advisee";
@@ -2216,16 +2218,28 @@ function logPayment(r, amount, description){
  * First Name / Last Name there, while everything else here uses one field.
  */
 function parseRoster(rows){
-  if(!rows || rows.length < ATTENDANCE_HEADER_ROW) return [];
-  const headers = (rows[ATTENDANCE_HEADER_ROW - 1] || []).map(normHeader);
+  if(!rows || rows.length < 2) return [];
+
+  // FIND the header row rather than assuming one. The attendance workbook is
+  // rebuilt yearly: in Fall 2026 a "Program Manager" column was added and the
+  // header moved from row 5 to row 6, which blanked attendance everywhere and
+  // silently emptied the roster. Must match the same scan in the Apps Script.
+  let headerRow = -1;
+  const scanTo = Math.min(rows.length, ATTENDANCE_HEADER_SCAN_ROWS);
+  for(let r = 0; r < scanTo; r++){
+    const low = (rows[r] || []).map(normHeader);
+    if(low.indexOf("first name") > -1 && low.indexOf("last name") > -1){ headerRow = r; break; }
+  }
+  if(headerRow === -1) return [];
+
+  const headers = (rows[headerRow] || []).map(normHeader);
   const firstIdx = headers.indexOf("first name");
   const lastIdx = headers.indexOf("last name");
   const totalIdx = headers.indexOf("total %");
-  if(firstIdx === -1 || lastIdx === -1) return [];
 
   const out = [];
   const seen = new Set();
-  for(let r = ATTENDANCE_HEADER_ROW; r < rows.length; r++){
+  for(let r = headerRow + 1; r < rows.length; r++){
     const row = rows[r] || [];
     const name = String(row[firstIdx] || "").trim() + " " + String(row[lastIdx] || "").trim();
     const key = nameKey(name);
